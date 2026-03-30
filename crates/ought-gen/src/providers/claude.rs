@@ -4,11 +4,12 @@ use crate::context::GenerationContext;
 use crate::generator::{ClauseGroup, GeneratedTest, Generator};
 
 use super::{
-    build_batch_prompt, build_prompt, derive_file_path, exec_cli_verbose, exec_cli_with_arg,
+    build_batch_prompt, build_prompt, derive_file_path, exec_cli, exec_cli_verbose,
     parse_batch_response,
 };
 
 /// Generates tests by exec-ing the `claude` CLI.
+/// Passes the prompt via stdin to avoid ARG_MAX limits.
 pub struct ClaudeGenerator {
     model: Option<String>,
 }
@@ -18,23 +19,22 @@ impl ClaudeGenerator {
         Self { model }
     }
 
-    fn build_args(&self, prompt: String) -> Vec<String> {
+    fn args(&self) -> Vec<String> {
         let mut args: Vec<String> = vec!["-p".into()];
         if let Some(ref model) = self.model {
             args.push("--model".into());
             args.push(model.clone());
         }
-        args.push(prompt);
         args
     }
 
-    fn exec(&self, prompt: String, verbose: bool) -> anyhow::Result<String> {
-        let args = self.build_args(prompt);
+    fn exec(&self, prompt: &str, verbose: bool) -> anyhow::Result<String> {
+        let args = self.args();
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
         if verbose {
-            exec_cli_verbose("claude", &args_ref, None)
+            exec_cli_verbose("claude", &args_ref, Some(prompt))
         } else {
-            exec_cli_with_arg("claude", &args_ref)
+            exec_cli("claude", &args_ref, prompt)
         }
     }
 }
@@ -46,7 +46,7 @@ impl Generator for ClaudeGenerator {
         context: &GenerationContext,
     ) -> anyhow::Result<GeneratedTest> {
         let prompt = build_prompt(clause, context);
-        let code = self.exec(prompt, context.verbose)?;
+        let code = self.exec(&prompt, context.verbose)?;
         let file_path = derive_file_path(clause, context.target_language);
 
         Ok(GeneratedTest {
@@ -70,7 +70,7 @@ impl Generator for ClaudeGenerator {
         }
 
         let prompt = build_batch_prompt(group, context);
-        let response = self.exec(prompt, context.verbose)?;
+        let response = self.exec(&prompt, context.verbose)?;
         Ok(parse_batch_response(&response, group, context.target_language))
     }
 }

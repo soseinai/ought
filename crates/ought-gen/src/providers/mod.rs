@@ -428,15 +428,6 @@ pub fn exec_cli(
     exec_cli_inner(command, args, Some(prompt), false)
 }
 
-/// Execute a CLI command with the prompt as an argument (not stdin), return stdout.
-/// When `verbose` is true, streams stdout to stderr in real-time.
-pub fn exec_cli_with_arg(
-    command: &str,
-    args: &[&str],
-) -> anyhow::Result<String> {
-    exec_cli_inner(command, args, None, false)
-}
-
 /// Verbose version: streams LLM output to stderr in real-time.
 pub fn exec_cli_verbose(
     command: &str,
