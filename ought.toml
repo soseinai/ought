@@ -1,0 +1,18 @@
+[project]
+name = "ought"
+version = "0.1.0"
+
+[specs]
+roots = ["ought/"]
+
+[context]
+search_paths = ["src/"]
+exclude = ["target/", "ought/ought-gen/"]
+
+[generator]
+provider = "anthropic"
+model = "claude-sonnet-4-6"
+
+[runner.rust]
+command = "cargo test"
+test_dir = "ought/ought-gen/"
