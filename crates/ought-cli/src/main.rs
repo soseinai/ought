@@ -600,6 +600,9 @@ fn cmd_generate(cli: &Cli, args: &GenerateArgs) -> anyhow::Result<()> {
                     }
                 }
                 generated_count += tests.len();
+
+                // Save manifest after each batch so ctrl+c doesn't lose progress
+                manifest.save(&manifest_path)?;
             }
             Err(e) => {
                 eprintln!("  \x1b[31m\u{2717}\x1b[0m error: {}", e);
@@ -608,7 +611,7 @@ fn cmd_generate(cli: &Cli, args: &GenerateArgs) -> anyhow::Result<()> {
         }
     }
 
-    // Remove orphaned entries
+    // Remove orphaned entries and save final manifest
     let all_ids = collect_all_testable_ids(&specs);
     let id_refs: Vec<&ought_spec::ClauseId> = all_ids.iter().collect();
     manifest.remove_orphans(&id_refs);
