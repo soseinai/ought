@@ -119,14 +119,14 @@ fn parse_keyword(bold_text: &str) -> Option<(Keyword, Option<Duration>)> {
 /// Parse a duration string like "200ms", "5s", "30m".
 fn parse_duration(s: &str) -> Option<Duration> {
     let s = s.trim();
-    if s.ends_with("ms") {
-        let num = s[..s.len() - 2].trim().parse::<u64>().ok()?;
+    if let Some(num_str) = s.strip_suffix("ms") {
+        let num = num_str.trim().parse::<u64>().ok()?;
         Some(Duration::from_millis(num))
-    } else if s.ends_with('m') {
-        let num = s[..s.len() - 1].trim().parse::<u64>().ok()?;
+    } else if let Some(num_str) = s.strip_suffix('m') {
+        let num = num_str.trim().parse::<u64>().ok()?;
         Some(Duration::from_secs(num * 60))
-    } else if s.ends_with('s') {
-        let num = s[..s.len() - 1].trim().parse::<u64>().ok()?;
+    } else if let Some(num_str) = s.strip_suffix('s') {
+        let num = num_str.trim().parse::<u64>().ok()?;
         Some(Duration::from_secs(num))
     } else {
         None
@@ -609,8 +609,8 @@ impl ParseState {
 
     fn flush_prose(&mut self) {
         let prose = std::mem::take(&mut self.prose_buf).trim().to_string();
-        if !prose.is_empty() {
-            if let Some((_, section)) = self.section_stack.last_mut() {
+        if !prose.is_empty()
+            && let Some((_, section)) = self.section_stack.last_mut() {
                 if section.prose.is_empty() {
                     section.prose = prose;
                 } else {
@@ -618,7 +618,6 @@ impl ParseState {
                     section.prose.push_str(&prose);
                 }
             }
-        }
     }
 
     fn flush_pending_items(&mut self) {
@@ -784,11 +783,10 @@ impl ParseState {
     }
 
     fn attach_hint_to_last_clause(&mut self, code: String) {
-        if let Some((_, section)) = self.section_stack.last_mut() {
-            if let Some(clause) = section.clauses.last_mut() {
+        if let Some((_, section)) = self.section_stack.last_mut()
+            && let Some(clause) = section.clauses.last_mut() {
                 clause.hints.push(code);
             }
-        }
     }
 
     fn flush_section_stack(&mut self) {

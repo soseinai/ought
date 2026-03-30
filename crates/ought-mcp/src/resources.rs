@@ -14,7 +14,7 @@ impl ResourceHandler {
     }
 
     /// `ought://specs/{name}` — parsed clauses for a specific spec.
-    pub fn specs_get(&self, name: &str) -> anyhow::Result<Value> {
+    pub fn specs_get(&self, _name: &str) -> anyhow::Result<Value> {
         todo!()
     }
 

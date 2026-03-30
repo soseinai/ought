@@ -386,9 +386,9 @@ fn render_clause(
     let mut suffix = String::new();
 
     // MUST BY: show measured vs deadline
-    if let Some(Temporal::Deadline(deadline)) = &clause.temporal {
-        if let Some(tr) = tr {
-            if let Some(measured) = tr.details.measured_duration {
+    if let Some(Temporal::Deadline(deadline)) = &clause.temporal
+        && let Some(tr) = tr
+            && let Some(measured) = tr.details.measured_duration {
                 suffix = format!(
                     "  [{}{}/ {}]",
                     format_duration(measured),
@@ -396,17 +396,13 @@ fn render_clause(
                     format_duration(*deadline),
                 );
             }
-        }
-    }
 
     // MUST ALWAYS: show iteration count
-    if let Some(Temporal::Invariant) = &clause.temporal {
-        if let Some(tr) = tr {
-            if let Some(iters) = tr.details.iterations {
+    if let Some(Temporal::Invariant) = &clause.temporal
+        && let Some(tr) = tr
+            && let Some(iters) = tr.details.iterations {
                 suffix = format!("  (tested {} inputs)", iters);
             }
-        }
-    }
 
     // WONT passed: show "confirmed absent"
     if clause.keyword == Keyword::Wont && status == TestStatus::Passed {
@@ -478,14 +474,13 @@ fn render_clause(
     }
 
     // Show failure details
-    if let Some(tr) = tr {
-        if status == TestStatus::Failed || status == TestStatus::Errored {
-            if let Some(msg) = tr.details.failure_message.as_deref().or(tr.message.as_deref()) {
-                let detail_indent = format!("{}    ", indent);
-                for line in msg.lines() {
-                    writeln!(out, "{}{}", detail_indent, p.red(line))?;
-                }
-            }
+    if let Some(tr) = tr
+        && (status == TestStatus::Failed || status == TestStatus::Errored)
+        && let Some(msg) = tr.details.failure_message.as_deref().or(tr.message.as_deref())
+    {
+        let detail_indent = format!("{}    ", indent);
+        for line in msg.lines() {
+            writeln!(out, "{}{}", detail_indent, p.red(line))?;
         }
     }
 
@@ -513,11 +508,10 @@ fn render_clause(
 
 /// Check if any clause or its otherwise chain has a failure.
 fn has_failure(clause: &Clause, result_map: &HashMap<&str, &ought_run::TestResult>) -> bool {
-    if let Some(tr) = result_map.get(clause.id.0.as_str()) {
-        if tr.status == TestStatus::Failed || tr.status == TestStatus::Errored {
+    if let Some(tr) = result_map.get(clause.id.0.as_str())
+        && (tr.status == TestStatus::Failed || tr.status == TestStatus::Errored) {
             return true;
         }
-    }
     for child in &clause.otherwise {
         if has_failure(child, result_map) {
             return true;

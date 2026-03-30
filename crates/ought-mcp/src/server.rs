@@ -5,7 +5,7 @@ use std::path::PathBuf;
 /// Exposes ought tools and resources over stdio or SSE transport
 /// so AI assistants and IDE extensions can interact programmatically.
 pub struct McpServer {
-    config_path: PathBuf,
+    _config_path: PathBuf,
 }
 
 /// Transport protocol for the MCP server.
@@ -17,11 +17,13 @@ pub enum Transport {
 
 impl McpServer {
     pub fn new(config_path: PathBuf) -> Self {
-        Self { config_path }
+        Self {
+            _config_path: config_path,
+        }
     }
 
     /// Start serving on the given transport. Blocks until shutdown.
-    pub async fn serve(self, transport: Transport) -> anyhow::Result<()> {
+    pub async fn serve(self, _transport: Transport) -> anyhow::Result<()> {
         todo!()
     }
 

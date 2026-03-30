@@ -197,7 +197,7 @@ fn load_config(config_path: &Option<PathBuf>) -> anyhow::Result<(PathBuf, Config
 }
 
 /// Load and parse all specs from config roots.
-fn load_specs(config: &Config, config_path: &PathBuf) -> anyhow::Result<SpecGraph> {
+fn load_specs(config: &Config, config_path: &std::path::Path) -> anyhow::Result<SpecGraph> {
     let config_dir = config_path
         .parent()
         .unwrap_or(std::path::Path::new("."))
@@ -353,7 +353,7 @@ fn cmd_run(cli: &Cli, args: &RunArgs) -> anyhow::Result<()> {
 
     // Collect generated test files from the manifest
     let manifest_path = test_dir.join("manifest.toml");
-    let manifest = Manifest::load(&manifest_path).unwrap_or_default();
+    let _manifest = Manifest::load(&manifest_path).unwrap_or_default();
 
     // Build list of GeneratedTest from files in ought-gen
     let generated_tests = collect_generated_tests(&test_dir, &runner_name)?;

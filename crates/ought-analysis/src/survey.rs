@@ -10,9 +10,9 @@ use crate::types::SurveyResult;
 /// Reads source files, reads all specs, and uses the LLM to identify
 /// public behaviors, APIs, and logic branches that lack corresponding clauses.
 pub fn survey(
-    specs: &SpecGraph,
-    paths: &[PathBuf],
-    generator: &dyn Generator,
+    _specs: &SpecGraph,
+    _paths: &[PathBuf],
+    _generator: &dyn Generator,
 ) -> anyhow::Result<SurveyResult> {
     todo!()
 }

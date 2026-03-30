@@ -15,10 +15,10 @@ pub struct BisectOptions {
 ///
 /// Always restores the working tree to its original state after completion.
 pub fn bisect(
-    clause_id: &ClauseId,
-    specs: &SpecGraph,
-    runner: &dyn Runner,
-    options: &BisectOptions,
+    _clause_id: &ClauseId,
+    _specs: &SpecGraph,
+    _runner: &dyn Runner,
+    _options: &BisectOptions,
 ) -> anyhow::Result<BisectResult> {
     todo!()
 }

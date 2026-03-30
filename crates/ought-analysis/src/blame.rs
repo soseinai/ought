@@ -9,10 +9,10 @@ use crate::types::BlameResult;
 /// Finds when the clause last passed, what commits changed since,
 /// and uses the LLM to produce a causal narrative.
 pub fn blame(
-    clause_id: &ClauseId,
-    specs: &SpecGraph,
-    results: &RunResult,
-    generator: &dyn Generator,
+    _clause_id: &ClauseId,
+    _specs: &SpecGraph,
+    _results: &RunResult,
+    _generator: &dyn Generator,
 ) -> anyhow::Result<BlameResult> {
     todo!()
 }

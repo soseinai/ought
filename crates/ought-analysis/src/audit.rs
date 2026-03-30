@@ -8,6 +8,6 @@ use crate::types::AuditResult;
 /// Detects: contradictory clauses, MUST BY deadline conflicts,
 /// MUST ALWAYS invariant conflicts, overlapping GIVEN conditions
 /// with contradictory obligations, and missing OTHERWISE chains.
-pub fn audit(specs: &SpecGraph, generator: &dyn Generator) -> anyhow::Result<AuditResult> {
+pub fn audit(_specs: &SpecGraph, _generator: &dyn Generator) -> anyhow::Result<AuditResult> {
     todo!()
 }

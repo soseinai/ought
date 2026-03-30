@@ -45,8 +45,8 @@ fn parse_cargo_test_output(
     for line in output.lines() {
         let line = line.trim();
         // Lines look like: "test test_name ... ok" or "test test_name ... FAILED"
-        if let Some(rest) = line.strip_prefix("test ") {
-            if let Some((name_part, status_part)) = rest.rsplit_once(" ... ") {
+        if let Some(rest) = line.strip_prefix("test ")
+            && let Some((name_part, status_part)) = rest.rsplit_once(" ... ") {
                 let test_name = name_part.trim();
                 let status_str = status_part.trim();
 
@@ -96,7 +96,6 @@ fn parse_cargo_test_output(
                     },
                 });
             }
-        }
     }
 
     results

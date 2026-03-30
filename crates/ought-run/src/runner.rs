@@ -2,7 +2,7 @@ use std::path::Path;
 
 use ought_gen::GeneratedTest;
 
-use crate::types::{RunResult, TestResult};
+use crate::types::RunResult;
 
 /// Trait implemented by each language-specific test runner.
 ///

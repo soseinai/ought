@@ -53,32 +53,29 @@ impl<'a> ContextAssembler<'a> {
                 if let Ok(entries) = std::fs::read_dir(&resolved) {
                     for entry in entries.flatten() {
                         let p = entry.path();
-                        if p.is_file() && source_files.len() < self.config.context.max_files {
-                            if let Ok(sf) = self.read_source(&p) {
+                        if p.is_file() && source_files.len() < self.config.context.max_files
+                            && let Ok(sf) = self.read_source(&p) {
                                 source_files.push(sf);
                             }
-                        }
                     }
                 }
             }
         }
 
         // If no explicit sources, auto-discover
-        if source_files.is_empty() {
-            if let Ok(discovered) = self.discover_sources(clause) {
+        if source_files.is_empty()
+            && let Ok(discovered) = self.discover_sources(clause) {
                 source_files = discovered;
             }
-        }
 
         // Read schema files from spec metadata
         let mut schema_files = Vec::new();
         for schema_path_str in &spec.metadata.schemas {
             let resolved = spec_dir.join(schema_path_str);
-            if resolved.is_file() {
-                if let Ok(sf) = self.read_source(&resolved) {
+            if resolved.is_file()
+                && let Ok(sf) = self.read_source(&resolved) {
                     schema_files.push(sf);
                 }
-            }
         }
 
         // Determine target language from generator config or default to Rust

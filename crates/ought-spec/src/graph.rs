@@ -13,18 +13,17 @@ pub struct SpecGraph {
 }
 
 /// Recursively walk a directory and collect all files matching `*.ought.md`.
-fn collect_ought_files(dir: &PathBuf) -> Vec<PathBuf> {
+fn collect_ought_files(dir: &std::path::Path) -> Vec<PathBuf> {
     let mut results = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
                 results.extend(collect_ought_files(&path));
-            } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.ends_with(".ought.md") {
+            } else if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && name.ends_with(".ought.md") {
                     results.push(path);
                 }
-            }
         }
     }
     results
@@ -108,8 +107,8 @@ impl SpecGraph {
 
         // Kahn's algorithm
         let mut queue: VecDeque<usize> = VecDeque::new();
-        for i in 0..n {
-            if in_degree[i] == 0 {
+        for (i, &deg) in in_degree.iter().enumerate() {
+            if deg == 0 {
                 queue.push_back(i);
             }
         }
@@ -130,8 +129,8 @@ impl SpecGraph {
     }
 
     /// Look up a spec by its source file path.
-    pub fn get_by_path(&self, path: &PathBuf) -> Option<&Spec> {
-        self.specs.iter().find(|s| &s.source_path == path)
+    pub fn get_by_path(&self, path: &std::path::Path) -> Option<&Spec> {
+        self.specs.iter().find(|s| s.source_path == path)
     }
 }
 
