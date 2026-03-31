@@ -496,6 +496,7 @@ name = "ought-mcp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "ought-analysis",
  "ought-gen",
  "ought-run",

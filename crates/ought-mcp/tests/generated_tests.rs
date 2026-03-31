@@ -14,6 +14,14 @@ fn make_server() -> McpServer {
     McpServer::new(PathBuf::from("ought.toml"))
 }
 
+fn make_tool_handler() -> ToolHandler {
+    ToolHandler::new(PathBuf::from("ought.toml"))
+}
+
+fn make_resource_handler() -> ResourceHandler {
+    ResourceHandler::new(PathBuf::from("ought.toml"))
+}
+
 // ===========================================================================
 // server_lifecycle
 // ===========================================================================
@@ -21,7 +29,6 @@ fn make_server() -> McpServer {
 /// MUST start the MCP server via `ought mcp serve`
 ///
 /// Verifies the McpServer type can be constructed and the Transport enum exists.
-/// Actual serving requires the full `serve()` implementation (currently todo!).
 #[test]
 fn test_mcp_server__server_lifecycle__must_start_the_mcp_server_via_ought_mcp_serve() {
     let server = make_server();
@@ -57,7 +64,6 @@ fn test_mcp_server__server_lifecycle__must_support_sse_transport_via_transport_s
 /// MUST advertise all available tools and resources on initialization
 ///
 /// Verifies that ToolHandler and ResourceHandler types exist with all expected methods.
-/// Actually calling them is deferred because they are todo!() stubs.
 #[test]
 fn test_mcp_server__server_lifecycle__must_advertise_all_available_tools_and_resources_on_initializatio() {
     // ToolHandler methods must exist (compile-time verification)
@@ -83,9 +89,56 @@ fn test_mcp_server__server_lifecycle__must_advertise_all_available_tools_and_res
     ];
 }
 
+/// MUST respond to JSON-RPC initialize request with correct protocol version and capabilities.
+#[test]
+fn test_mcp_server__server_lifecycle__must_respond_to_initialize() {
+    let tool_handler = make_tool_handler();
+    let resource_handler = make_resource_handler();
+
+    let request = r#"{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}"#;
+    let response = McpServer::handle_request(request, &tool_handler, &resource_handler);
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert_eq!(response["id"], 1);
+    assert_eq!(response["result"]["protocolVersion"], "2024-11-05");
+    assert_eq!(response["result"]["serverInfo"]["name"], "ought");
+    assert_eq!(response["result"]["serverInfo"]["version"], "0.1.0");
+    assert!(response["result"]["capabilities"]["tools"].is_object());
+    assert!(response["result"]["capabilities"]["resources"].is_object());
+}
+
+/// MUST return JSON-RPC error for unknown methods.
+#[test]
+fn test_mcp_server__server_lifecycle__must_return_error_for_unknown_method() {
+    let tool_handler = make_tool_handler();
+    let resource_handler = make_resource_handler();
+
+    let request = r#"{"jsonrpc": "2.0", "id": 2, "method": "nonexistent/method", "params": {}}"#;
+    let response = McpServer::handle_request(request, &tool_handler, &resource_handler);
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert_eq!(response["id"], 2);
+    assert!(response["error"].is_object());
+    assert_eq!(response["error"]["code"], -32601);
+}
+
+/// MUST return JSON-RPC parse error for malformed JSON.
+#[test]
+fn test_mcp_server__server_lifecycle__must_return_parse_error_for_malformed_json() {
+    let tool_handler = make_tool_handler();
+    let resource_handler = make_resource_handler();
+
+    let request = "this is not json";
+    let response = McpServer::handle_request(request, &tool_handler, &resource_handler);
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert!(response["error"].is_object());
+    assert_eq!(response["error"]["code"], -32700);
+}
+
 /// MUST shut down cleanly on SIGTERM or client disconnect
 ///
-/// Requires running the actual server. Marked ignored because serve() is todo!().
+/// Requires running the actual server. Marked ignored because serve() requires I/O.
 #[test]
 #[ignore]
 fn test_mcp_server__server_lifecycle__must_shut_down_cleanly_on_sigterm_or_client_disconnect() {
@@ -94,7 +147,7 @@ fn test_mcp_server__server_lifecycle__must_shut_down_cleanly_on_sigterm_or_clien
 
 /// SHOULD support `ought mcp install` to auto-register with MCP-compatible agents
 ///
-/// Requires the install() implementation. Marked ignored because install() is todo!().
+/// Requires file system access to HOME. Marked ignored for CI.
 #[test]
 #[ignore]
 fn test_mcp_server__server_lifecycle__should_support_ought_mcp_install_to_auto_register_with_mcp_compatib() {
@@ -107,11 +160,11 @@ fn test_mcp_server__server_lifecycle__should_support_ought_mcp_install_to_auto_r
 
 /// MUST expose `ought_run` -- run specs and return structured results
 ///
-/// Verifies the method signature exists. Actual invocation would panic (todo!).
+/// Verifies the method exists and accepts args. Actual invocation requires config on disk.
 #[test]
 #[ignore]
 fn test_mcp_server__tools__must_expose_ought_run_run_specs_and_return_structured_results_acc() {
-    let handler = ToolHandler {};
+    let handler = make_tool_handler();
     let _result = handler.ought_run(serde_json::json!({}));
 }
 
@@ -119,7 +172,7 @@ fn test_mcp_server__tools__must_expose_ought_run_run_specs_and_return_structured
 #[test]
 #[ignore]
 fn test_mcp_server__tools__must_expose_ought_generate_regenerate_stale_or_specified_clauses() {
-    let handler = ToolHandler {};
+    let handler = make_tool_handler();
     let _result = handler.ought_generate(serde_json::json!({}));
 }
 
@@ -127,7 +180,7 @@ fn test_mcp_server__tools__must_expose_ought_generate_regenerate_stale_or_specif
 #[test]
 #[ignore]
 fn test_mcp_server__tools__must_expose_ought_check_validate_spec_syntax() {
-    let handler = ToolHandler {};
+    let handler = make_tool_handler();
     let _result = handler.ought_check(serde_json::json!({}));
 }
 
@@ -135,7 +188,7 @@ fn test_mcp_server__tools__must_expose_ought_check_validate_spec_syntax() {
 #[test]
 #[ignore]
 fn test_mcp_server__tools__must_expose_ought_inspect_return_generated_test_code_for_a_clause() {
-    let handler = ToolHandler {};
+    let handler = make_tool_handler();
     let _result = handler.ought_inspect(serde_json::json!({"clause_id": "test::clause"}));
 }
 
@@ -143,7 +196,7 @@ fn test_mcp_server__tools__must_expose_ought_inspect_return_generated_test_code_
 #[test]
 #[ignore]
 fn test_mcp_server__tools__must_expose_ought_status_return_spec_coverage_summary_clause_coun() {
-    let handler = ToolHandler {};
+    let handler = make_tool_handler();
     let _result = handler.ought_status(serde_json::json!({}));
 }
 
@@ -151,7 +204,7 @@ fn test_mcp_server__tools__must_expose_ought_status_return_spec_coverage_summary
 #[test]
 #[ignore]
 fn test_mcp_server__tools__must_expose_ought_survey_analyze_source_for_uncovered_behaviors() {
-    let handler = ToolHandler {};
+    let handler = make_tool_handler();
     let _result = handler.ought_survey(serde_json::json!({}));
 }
 
@@ -159,7 +212,7 @@ fn test_mcp_server__tools__must_expose_ought_survey_analyze_source_for_uncovered
 #[test]
 #[ignore]
 fn test_mcp_server__tools__must_expose_ought_audit_cross_spec_conflict_and_gap_analysis() {
-    let handler = ToolHandler {};
+    let handler = make_tool_handler();
     let _result = handler.ought_audit(serde_json::json!({}));
 }
 
@@ -167,7 +220,7 @@ fn test_mcp_server__tools__must_expose_ought_audit_cross_spec_conflict_and_gap_a
 #[test]
 #[ignore]
 fn test_mcp_server__tools__must_expose_ought_blame_explain_why_a_clause_is_failing() {
-    let handler = ToolHandler {};
+    let handler = make_tool_handler();
     let _result = handler.ought_blame(serde_json::json!({"clause_id": "test::clause"}));
 }
 
@@ -175,7 +228,7 @@ fn test_mcp_server__tools__must_expose_ought_blame_explain_why_a_clause_is_faili
 #[test]
 #[ignore]
 fn test_mcp_server__tools__should_expose_ought_bisect_find_the_breaking_commit_for_a_clause() {
-    let handler = ToolHandler {};
+    let handler = make_tool_handler();
     let _result = handler.ought_bisect(serde_json::json!({"clause_id": "test::clause"}));
 }
 
@@ -207,6 +260,36 @@ fn test_mcp_server__tools__must_return_structured_json_responses_from_all_tools_
         ToolHandler::ought_blame;
     let _: fn(&ToolHandler, serde_json::Value) -> anyhow::Result<serde_json::Value> =
         ToolHandler::ought_bisect;
+}
+
+/// MUST route tools/call correctly through JSON-RPC layer.
+#[test]
+fn test_mcp_server__tools__must_route_tool_call_through_jsonrpc() {
+    let tool_handler = make_tool_handler();
+    let resource_handler = make_resource_handler();
+
+    // Call an unknown tool -- should get an error response, not a crash
+    let request = r#"{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "unknown_tool", "arguments": {}}}"#;
+    let response = McpServer::handle_request(request, &tool_handler, &resource_handler);
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert_eq!(response["id"], 3);
+    assert!(response["error"].is_object());
+}
+
+/// MUST return error when tools/call is missing the tool name.
+#[test]
+fn test_mcp_server__tools__must_return_error_when_missing_tool_name() {
+    let tool_handler = make_tool_handler();
+    let resource_handler = make_resource_handler();
+
+    let request = r#"{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {}}"#;
+    let response = McpServer::handle_request(request, &tool_handler, &resource_handler);
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert_eq!(response["id"], 4);
+    assert!(response["error"].is_object());
+    assert_eq!(response["error"]["code"], -32602);
 }
 
 /// SHOULD include execution duration and timestamp in tool responses
@@ -261,6 +344,36 @@ fn test_mcp_server__resources__should_expose_ought_manifest_current_generation_m
         ResourceHandler::manifest;
 }
 
+/// MUST route resources/read correctly through JSON-RPC layer.
+#[test]
+fn test_mcp_server__resources__must_route_resource_read_through_jsonrpc() {
+    let tool_handler = make_tool_handler();
+    let resource_handler = make_resource_handler();
+
+    // Read an unknown resource -- should get an error response, not a crash
+    let request = r#"{"jsonrpc": "2.0", "id": 5, "method": "resources/read", "params": {"uri": "ought://unknown"}}"#;
+    let response = McpServer::handle_request(request, &tool_handler, &resource_handler);
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert_eq!(response["id"], 5);
+    assert!(response["error"].is_object());
+}
+
+/// MUST return error when resources/read is missing the URI.
+#[test]
+fn test_mcp_server__resources__must_return_error_when_missing_uri() {
+    let tool_handler = make_tool_handler();
+    let resource_handler = make_resource_handler();
+
+    let request = r#"{"jsonrpc": "2.0", "id": 6, "method": "resources/read", "params": {}}"#;
+    let response = McpServer::handle_request(request, &tool_handler, &resource_handler);
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert_eq!(response["id"], 6);
+    assert!(response["error"].is_object());
+    assert_eq!(response["error"]["code"], -32602);
+}
+
 /// SHOULD support resource subscriptions so clients get notified when results change
 ///
 /// Requires actual server implementation. Marked ignored.
@@ -292,20 +405,35 @@ fn test_mcp_server__error_handling__must_return_mcp_compliant_error_responses_wi
 
 /// MUST NOT crash the server on a single tool invocation failure
 ///
-/// Requires a running server to verify. Marked ignored.
+/// Verifies that calling a tool with a missing config returns an error, not a panic.
 #[test]
-#[ignore]
 fn test_mcp_server__error_handling__must_not_crash_the_server_on_a_single_tool_invocation_failure() {
-    // Would call a tool that fails and verify the server is still responsive.
+    let tool_handler = make_tool_handler();
+    let resource_handler = make_resource_handler();
+
+    // Call ought_check which will fail because ought.toml doesn't exist at "ought.toml"
+    let request = r#"{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "ought_check", "arguments": {}}}"#;
+    let response = McpServer::handle_request(request, &tool_handler, &resource_handler);
+
+    // Should get a proper JSON-RPC error, not a panic
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert_eq!(response["id"], 7);
+    assert!(response["error"].is_object(), "Expected error response, got: {}", response);
+    assert_eq!(response["error"]["code"], -32000);
+    assert!(response["error"]["message"].as_str().unwrap().len() > 0);
 }
 
 /// MUST ALWAYS return valid JSON-RPC responses, even for internal errors
-///
-/// Requires a running server to verify. Marked ignored.
 #[test]
-#[ignore]
 fn test_mcp_server__error_handling__must_always_return_valid_json_rpc_responses_even_for_internal_errors() {
-    // Would send malformed requests and verify the server returns valid JSON-RPC.
+    let tool_handler = make_tool_handler();
+    let resource_handler = make_resource_handler();
+
+    // Send a request with missing method
+    let request = r#"{"jsonrpc": "2.0", "id": 8}"#;
+    let response = McpServer::handle_request(request, &tool_handler, &resource_handler);
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert!(response["error"].is_object());
 }
 
 /// MUST ALWAYS remain responsive to new requests while processing long-running tools
