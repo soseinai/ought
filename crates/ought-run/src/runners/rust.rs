@@ -213,6 +213,8 @@ impl Runner for RustRunner {
 
         let output = Command::new("cargo")
             .arg("test")
+            .arg("--no-fail-fast")
+            .arg("--")
             .arg("--test-threads=1")
             .current_dir(&project_dir)
             .output()?;

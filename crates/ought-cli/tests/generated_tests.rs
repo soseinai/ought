@@ -21,6 +21,7 @@ fn unique_dir(prefix: &str) -> PathBuf {
 }
 
 /// Creates a minimal ought project in the given directory.
+/// This includes a Cargo.toml and src/lib.rs so that `cargo test` can run.
 fn scaffold_project(dir: &Path) {
     let spec_dir = dir.join("ought");
     fs::create_dir_all(&spec_dir).unwrap();
@@ -29,6 +30,15 @@ fn scaffold_project(dir: &Path) {
         "[project]\nname = \"test\"\n\n[specs]\nroots = [\"ought/\"]\n\n[generator]\nprovider = \"anthropic\"\n\n[runner.rust]\ncommand = \"cargo test\"\ntest_dir = \"ought/ought-gen/\"\n",
     )
     .unwrap();
+    // Create a minimal Cargo.toml so the rust runner can find a Cargo project.
+    fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname = \"ought-test-project\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    // Create src/lib.rs so cargo has something to compile.
+    fs::create_dir_all(dir.join("src")).unwrap();
+    fs::write(dir.join("src/lib.rs"), "// placeholder\n").unwrap();
     fs::write(
         spec_dir.join("test.ought.md"),
         "# Test\n\n## Basic\n\n- **MUST** do something\n",
@@ -68,6 +78,8 @@ fn walkdir(dir: &Path) -> std::collections::BTreeSet<PathBuf> {
 
 /// Writes a generated test file for a clause identifier (using `__` as separator).
 /// `pass` controls whether the generated test passes or fails.
+/// Also registers the test file in the project's Cargo.toml as a `[[test]]` entry
+/// so that `cargo test` can discover and run it.
 fn write_test(dir: &Path, clause_id: &str, pass: bool) {
     let test_dir = dir.join("ought").join("ought-gen");
     // Convert double-underscore separated clause id into a directory path
@@ -88,16 +100,32 @@ fn write_test(dir: &Path, clause_id: &str, pass: bool) {
     }
     let body = if pass {
         format!(
-            "#[test]\nfn test_{}() {{\n    assert!(true);\n}}\n",
+            "#[test]\nfn {}() {{\n    assert!(true);\n}}\n",
             clause_id
         )
     } else {
         format!(
-            "#[test]\nfn test_{}() {{\n    assert!(false, \"deliberately failing\");\n}}\n",
+            "#[test]\nfn {}() {{\n    assert!(false, \"deliberately failing\");\n}}\n",
             clause_id
         )
     };
     fs::write(&file_path, body).unwrap();
+
+    // Append a [[test]] entry to Cargo.toml so cargo test discovers this file.
+    let cargo_toml = dir.join("Cargo.toml");
+    let rel_path = file_path
+        .strip_prefix(dir)
+        .unwrap()
+        .to_string_lossy()
+        .replace('\\', "/");
+    // Use the clause_id as the test name (unique per test).
+    let test_entry = format!(
+        "\n[[test]]\nname = \"{}\"\npath = \"{}\"\nharness = true\n",
+        clause_id, rel_path
+    );
+    let mut cargo_content = fs::read_to_string(&cargo_toml).unwrap();
+    cargo_content.push_str(&test_entry);
+    fs::write(&cargo_toml, cargo_content).unwrap();
 }
 
 // --- must_exit_with_code_0_if_all_specs_are_valid_1_if_any_are_invalid_test.rs ---

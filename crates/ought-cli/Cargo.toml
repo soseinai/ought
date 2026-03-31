@@ -19,4 +19,5 @@ ought-mcp.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
+notify = "7"
 tokio.workspace = true

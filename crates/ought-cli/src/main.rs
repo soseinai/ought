@@ -302,6 +302,49 @@ fn collect_ids_from_sections(sections: &[ought_spec::Section], ids: &mut Vec<oug
     }
 }
 
+/// Info about a clause for exit-code decisions.
+struct ClauseInfo {
+    severity: ought_spec::Severity,
+    otherwise_ids: Vec<String>,
+}
+
+/// Build a map from clause ID string to its info for exit-code decisions.
+fn collect_all_clause_info(specs: &SpecGraph) -> std::collections::HashMap<String, ClauseInfo> {
+    let mut map = std::collections::HashMap::new();
+    for spec in specs.specs() {
+        collect_clause_info_from_sections(&spec.sections, &mut map);
+    }
+    map
+}
+
+fn collect_clause_info_from_sections(
+    sections: &[ought_spec::Section],
+    map: &mut std::collections::HashMap<String, ClauseInfo>,
+) {
+    for section in sections {
+        for clause in &section.clauses {
+            let otherwise_ids: Vec<String> = clause.otherwise.iter().map(|ow| ow.id.0.clone()).collect();
+            map.insert(
+                clause.id.0.clone(),
+                ClauseInfo {
+                    severity: clause.severity,
+                    otherwise_ids,
+                },
+            );
+            for ow in &clause.otherwise {
+                map.insert(
+                    ow.id.0.clone(),
+                    ClauseInfo {
+                        severity: ow.severity,
+                        otherwise_ids: Vec::new(),
+                    },
+                );
+            }
+        }
+        collect_clause_info_from_sections(&section.subsections, map);
+    }
+}
+
 // ─── Command implementations ────────────────────────────────────────────────
 
 fn cmd_init() -> anyhow::Result<()> {
@@ -452,12 +495,76 @@ fn cmd_run(cli: &Cli, args: &RunArgs) -> anyhow::Result<()> {
         ought_report::junit::report(&results, specs.specs(), junit_path)?;
     }
 
-    // Exit code logic
-    let has_must_failures = results.results.iter().any(|r| {
-        r.status == ought_run::TestStatus::Failed
+    // Exit code logic: exit 1 if any Required-severity (MUST/MUST NOT) test
+    // failed or errored. Also exit 1 if --fail-on-should and any SHOULD test failed.
+    // A failed MUST clause is forgiven if an OTHERWISE clause in its chain passed
+    // (graceful degradation).
+    let clause_info = collect_all_clause_info(&specs);
+    let result_map: std::collections::HashMap<&str, &ought_run::TestResult> = results
+        .results
+        .iter()
+        .map(|r| (r.clause_id.0.as_str(), r))
+        .collect();
+
+    let has_hard_failure = results.results.iter().any(|r| {
+        let is_failure =
+            r.status == ought_run::TestStatus::Failed || r.status == ought_run::TestStatus::Errored;
+        if !is_failure {
+            return false;
+        }
+        // Look up clause info by ID; try exact match, then fuzzy suffix match.
+        let info = clause_info
+            .get(r.clause_id.0.as_str())
+            .or_else(|| {
+                let needle = r.clause_id.0.as_str();
+                clause_info
+                    .iter()
+                    .find(|(k, _)| needle.ends_with(k.as_str()) || k.ends_with(needle))
+                    .map(|(_, v)| v)
+            });
+
+        let severity = info
+            .map(|i| i.severity)
+            .unwrap_or(ought_spec::Severity::Required);
+
+        // Check graceful degradation: if this clause has OTHERWISE children and
+        // any of them passed, the failure is forgiven.
+        if let Some(info) = info
+            && !info.otherwise_ids.is_empty() {
+                let otherwise_passed = info.otherwise_ids.iter().any(|ow_id| {
+                    // Extract the last segment of the otherwise ID for fuzzy matching.
+                    // Spec IDs may be flat (spec::section::otherwise_x) while test
+                    // file paths nest under the parent (spec::section::parent::otherwise_x).
+                    let ow_suffix = ow_id.rsplit("::").next().unwrap_or(ow_id.as_str());
+                    result_map
+                        .get(ow_id.as_str())
+                        .or_else(|| {
+                            result_map
+                                .iter()
+                                .find(|(k, _)| {
+                                    // Match if the result key ends with the otherwise suffix
+                                    k.ends_with(ow_suffix)
+                                })
+                                .map(|(_, v)| v)
+                        })
+                        .map(|tr| tr.status == ought_run::TestStatus::Passed)
+                        .unwrap_or(false)
+                });
+                if otherwise_passed {
+                    return false; // graceful degradation — not a hard failure
+                }
+            }
+
+        match severity {
+            ought_spec::Severity::Required => true,
+            ought_spec::Severity::Recommended | ought_spec::Severity::Optional => {
+                args.fail_on_should
+            }
+            ought_spec::Severity::NegativeConfirmation => false,
+        }
     });
 
-    if has_must_failures {
+    if has_hard_failure {
         process::exit(1);
     }
 
@@ -836,12 +943,16 @@ fn collect_generated_tests(
         return Ok(tests);
     }
 
-    fn walk(dir: &std::path::Path, tests: &mut Vec<ought_gen::GeneratedTest>) {
+    fn walk(
+        dir: &std::path::Path,
+        root: &std::path::Path,
+        tests: &mut Vec<ought_gen::GeneratedTest>,
+    ) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    walk(&path, tests);
+                    walk(&path, root, tests);
                 } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                     let language = match ext {
                         "rs" => ought_gen::generator::Language::Rust,
@@ -852,9 +963,26 @@ fn collect_generated_tests(
                         _ => continue,
                     };
 
-                    // Derive clause ID from path
-                    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                    let clause_id = ought_spec::ClauseId(stem.replace("__", "::"));
+                    // Derive clause ID from the relative path within the test dir.
+                    // e.g. for test_dir/spec/section/must_do_something_test.rs
+                    // we get clause ID "spec::section::must_do_something".
+                    let rel = path
+                        .strip_prefix(root)
+                        .unwrap_or(&path);
+                    let stem = rel
+                        .with_extension("")
+                        .to_string_lossy()
+                        .to_string();
+                    // Strip trailing _test suffix if present
+                    let stem = stem
+                        .strip_suffix("_test")
+                        .unwrap_or(&stem)
+                        .to_string();
+                    // Convert path separators and double-underscores to ::
+                    let clause_str = stem
+                        .replace([std::path::MAIN_SEPARATOR, '/'], "::")
+                        .replace("__", "::");
+                    let clause_id = ought_spec::ClauseId(clause_str);
 
                     if let Ok(code) = std::fs::read_to_string(&path) {
                         tests.push(ought_gen::GeneratedTest {
@@ -869,8 +997,289 @@ fn collect_generated_tests(
         }
     }
 
-    walk(test_dir, &mut tests);
+    walk(test_dir, test_dir, &mut tests);
     Ok(tests)
+}
+
+fn cmd_diff(cli: &Cli) -> anyhow::Result<()> {
+    let (config_path, config) = load_config(&cli.config)?;
+    let specs = load_specs(&config, &config_path)?;
+
+    let config_dir = config_path.parent().unwrap_or(std::path::Path::new("."));
+    let test_dir = config
+        .runner
+        .values()
+        .next()
+        .map(|r| config_dir.join(&r.test_dir))
+        .unwrap_or_else(|| config_dir.join("ought/ought-gen"));
+
+    let manifest_path = test_dir.join("manifest.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap_or_default();
+
+    // Collect stale clauses grouped by spec file.
+    struct StaleClause {
+        id: String,
+        keyword: ought_spec::Keyword,
+        text: String,
+        reason: String,
+    }
+
+    struct SpecDiff {
+        spec_file: String,
+        stale: Vec<StaleClause>,
+        total: usize,
+    }
+
+    let mut diffs: Vec<SpecDiff> = Vec::new();
+
+    for spec in specs.specs() {
+        let spec_file = spec
+            .source_path
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| spec.name.clone());
+
+        let mut stale_clauses = Vec::new();
+        let mut total = 0;
+
+        fn collect_stale(
+            sections: &[ought_spec::Section],
+            manifest: &Manifest,
+            stale_clauses: &mut Vec<StaleClause>,
+            total: &mut usize,
+        ) {
+            for section in sections {
+                for clause in &section.clauses {
+                    if clause.keyword == ought_spec::Keyword::Given {
+                        continue;
+                    }
+                    *total += 1;
+                    if manifest.is_stale(&clause.id, &clause.content_hash, "") {
+                        let reason = match manifest.entries.get(&clause.id.0) {
+                            Some(entry) => {
+                                if entry.clause_hash != clause.content_hash {
+                                    "clause changed".to_string()
+                                } else {
+                                    "source changed".to_string()
+                                }
+                            }
+                            None => "new clause".to_string(),
+                        };
+                        stale_clauses.push(StaleClause {
+                            id: clause.id.0.clone(),
+                            keyword: clause.keyword,
+                            text: clause.text.clone(),
+                            reason,
+                        });
+                    }
+                }
+                collect_stale(&section.subsections, manifest, stale_clauses, total);
+            }
+        }
+
+        collect_stale(&spec.sections, &manifest, &mut stale_clauses, &mut total);
+        diffs.push(SpecDiff {
+            spec_file,
+            stale: stale_clauses,
+            total,
+        });
+    }
+
+    // Output in unified-diff-like format, grouped by spec file.
+    let mut any_stale = false;
+    for diff in &diffs {
+        if diff.stale.is_empty() {
+            continue;
+        }
+        any_stale = true;
+        println!("--- {}", diff.spec_file);
+        println!("+++ {} (pending)", diff.spec_file);
+        println!("@@ {}/{} clauses stale @@", diff.stale.len(), diff.total);
+        for sc in &diff.stale {
+            let kw = ought_gen::providers::keyword_str(sc.keyword);
+            println!("  M {}  ({}, {} {})", sc.id, sc.reason, kw, sc.text);
+        }
+        println!();
+    }
+
+    if !any_stale {
+        println!("All generated tests are up to date.");
+    }
+
+    Ok(())
+}
+
+fn cmd_watch(cli: &Cli) -> anyhow::Result<()> {
+    use notify::{RecursiveMode, Watcher};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let (config_path, config) = load_config(&cli.config)?;
+    let config_dir = config_path
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .to_path_buf();
+
+    // Resolve directories to watch.
+    let spec_roots: Vec<PathBuf> = config
+        .specs
+        .roots
+        .iter()
+        .map(|r| config_dir.join(r))
+        .collect();
+
+    let source_paths: Vec<PathBuf> = config
+        .context
+        .search_paths
+        .iter()
+        .map(|p| config_dir.join(p))
+        .collect();
+
+    // Run an initial cycle.
+    fn run_cycle(cli: &Cli, config_path: &std::path::Path, config: &Config) {
+        // Clear screen before printing.
+        eprint!("\x1b[2J\x1b[H");
+
+        let specs = match load_specs(config, config_path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("error loading specs: {}", e);
+                return;
+            }
+        };
+
+        // Print spec files being checked (before test execution, for early output).
+        eprintln!(" ought watch: checking {} spec(s)...", specs.specs().len());
+        for spec in specs.specs() {
+            if let Some(name) = spec.source_path.file_name() {
+                eprintln!("  {}", name.to_string_lossy());
+            }
+        }
+
+        let runner_name = config.runner.keys().next().cloned().unwrap_or("rust".into());
+        let runner = match runners::from_name(&runner_name) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("error creating runner: {}", e);
+                return;
+            }
+        };
+
+        if !runner.is_available() {
+            eprintln!("runner '{}' is not available", runner.name());
+            return;
+        }
+
+        let config_dir = config_path
+            .parent()
+            .unwrap_or(std::path::Path::new("."));
+        let test_dir = config
+            .runner
+            .get(&runner_name)
+            .map(|r| config_dir.join(&r.test_dir))
+            .unwrap_or_else(|| config_dir.join("ought/ought-gen"));
+
+        let generated_tests = match collect_generated_tests(&test_dir, &runner_name) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("error collecting tests: {}", e);
+                return;
+            }
+        };
+
+        if generated_tests.is_empty() {
+            eprintln!("No generated tests found. Run `ought generate` first.");
+            return;
+        }
+
+        let results = match runner.run(&generated_tests, &test_dir) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("error running tests: {}", e);
+                return;
+            }
+        };
+
+        let report_opts = ReportOptions {
+            diagnose: false,
+            grade: false,
+            quiet: cli.quiet,
+            color: cli.color.to_report_color(),
+        };
+
+        if cli.json {
+            if let Ok(json) = ought_report::json::report(&results, specs.specs()) {
+                println!("{}", json);
+            }
+        } else {
+            let _ = ought_report::terminal::report(&results, specs.specs(), &report_opts);
+        }
+    }
+
+    eprintln!("ought watch: running initial cycle...");
+    run_cycle(cli, &config_path, &config);
+
+    // Set up the file watcher.
+    let (tx, rx) = mpsc::channel();
+    let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, _>| {
+        if let Ok(event) = res {
+            let dominated = matches!(
+                event.kind,
+                notify::EventKind::Modify(_) | notify::EventKind::Create(_) | notify::EventKind::Remove(_)
+            );
+            if dominated {
+                let _ = tx.send(());
+            }
+        }
+    })?;
+
+    // Watch spec roots and source paths.
+    for root in &spec_roots {
+        if root.exists() {
+            watcher.watch(root, RecursiveMode::Recursive)?;
+        }
+    }
+    for path in &source_paths {
+        let p: &std::path::Path = path.as_ref();
+        if p.exists() {
+            watcher.watch(p, RecursiveMode::Recursive)?;
+        }
+    }
+
+    eprintln!("ought watch: watching for changes...");
+
+    // Debounce loop: wait for events, debounce at 500ms (sliding window), then re-run.
+    let debounce = Duration::from_millis(500);
+
+    while let Ok(()) = rx.recv() {
+
+        // Debounce with sliding window: each new event resets the timer.
+        // This ensures rapid bursts are collapsed into a single cycle.
+        loop {
+            match rx.recv_timeout(debounce) {
+                Ok(()) => {} // new event, reset the debounce timer
+                Err(mpsc::RecvTimeoutError::Timeout) => break, // no events for 500ms, fire
+                Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
+            }
+        }
+
+        // Drain any additional buffered events.
+        while rx.try_recv().is_ok() {}
+
+        // Reload config in case it changed.
+        let config = match Config::load(&config_path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprint!("\x1b[2J\x1b[H");
+                eprintln!("error reloading config: {}", e);
+                continue;
+            }
+        };
+
+        run_cycle(cli, &config_path, &config);
+    }
+
+    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
@@ -882,10 +1291,7 @@ fn main() -> anyhow::Result<()> {
         Command::Generate(args) => cmd_generate(&cli, args),
         Command::Check => cmd_check(&cli),
         Command::Inspect(args) => cmd_inspect(&cli, args),
-        Command::Diff => {
-            eprintln!("ought diff is not yet implemented");
-            Ok(())
-        }
+        Command::Diff => cmd_diff(&cli),
         Command::Survey(_args) => {
             eprintln!("ought survey is not yet implemented");
             Ok(())
@@ -902,10 +1308,7 @@ fn main() -> anyhow::Result<()> {
             eprintln!("ought bisect is not yet implemented");
             Ok(())
         }
-        Command::Watch => {
-            eprintln!("ought watch is not yet implemented");
-            Ok(())
-        }
+        Command::Watch => cmd_watch(&cli),
         Command::Mcp(args) => match &args.command {
             McpCommand::Serve {
                 transport: _,
