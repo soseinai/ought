@@ -14,14 +14,18 @@ members = [
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/aishfenton/ought"
+homepage = "https://github.com/aishfenton/ought"
+keywords = ["testing", "specs", "llm", "behavioral", "deontic"]
+categories = ["development-tools::testing"]
 
 [workspace.dependencies]
-ought-spec = { path = "crates/ought-spec" }
-ought-gen = { path = "crates/ought-gen" }
-ought-run = { path = "crates/ought-run" }
-ought-report = { path = "crates/ought-report" }
-ought-analysis = { path = "crates/ought-analysis" }
-ought-mcp = { path = "crates/ought-mcp" }
+ought-spec = { path = "crates/ought-spec", version = "0.1.0" }
+ought-gen = { path = "crates/ought-gen", version = "0.1.0" }
+ought-run = { path = "crates/ought-run", version = "0.1.0" }
+ought-report = { path = "crates/ought-report", version = "0.1.0" }
+ought-analysis = { path = "crates/ought-analysis", version = "0.1.0" }
+ought-mcp = { path = "crates/ought-mcp", version = "0.1.0" }
 
 anyhow = "1"
 thiserror = "2"

@@ -4,6 +4,10 @@ description = "MCP server for ought"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 ought-spec.workspace = true

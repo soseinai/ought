@@ -4,6 +4,10 @@ description = "LLM-powered test generation for ought specs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 ought-spec.workspace = true
