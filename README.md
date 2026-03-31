@@ -1,4 +1,4 @@
-# Ought -- Behavioral specs that test themselves
+# Ought; Behavioral specs that test themselves
 
 Ought separates **test intent** from **test implementation**. You write what your system *ought* to do in plain markdown. An LLM generates the tests. You run them.
 
