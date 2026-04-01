@@ -698,7 +698,6 @@ name = "ought"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "axum",
  "chrono",
  "clap",
  "notify",
@@ -707,8 +706,8 @@ dependencies = [
  "ought-mcp",
  "ought-report",
  "ought-run",
+ "ought-server",
  "ought-spec",
- "serde_json",
  "tokio",
 ]
 
@@ -775,6 +774,17 @@ dependencies = [
  "ought-spec",
  "serde",
  "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "ought-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "ought-spec",
+ "serde_json",
  "tokio",
 ]
 

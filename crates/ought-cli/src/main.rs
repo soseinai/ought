@@ -8,7 +8,6 @@ use ought_report::types::{ColorChoice as ReportColor, ReportOptions};
 use ought_run::runners;
 use ought_spec::{Config, SpecGraph};
 
-mod viewer;
 
 #[derive(Parser)]
 #[command(name = "ought", about = "Behavioral test framework powered by LLMs")]
@@ -1616,7 +1615,10 @@ fn main() -> anyhow::Result<()> {
         Command::Blame(args) => cmd_blame(&cli, args),
         Command::Bisect(args) => cmd_bisect(&cli, args),
         Command::Watch => cmd_watch(&cli),
-        Command::View { port, no_open } => viewer::cmd_view(&cli.config, *port, *no_open),
+        Command::View { port, no_open } => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(ought_server::serve(cli.config.as_deref(), *port, !*no_open))
+        }
         Command::Mcp(args) => match &args.command {
             McpCommand::Serve {
                 transport: _,
