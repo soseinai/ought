@@ -145,13 +145,13 @@ const VIEWER_HTML: &str = r##"<!DOCTYPE html>
   --ring:240 5.9% 10%;--radius:0.5rem;
   --accent:240 4.8% 95.9%;--accent-foreground:240 5.9% 10%;
   --popover:0 0% 100%;
-  --kw-must-bg:0 84% 95%;--kw-must-fg:0 72% 51%;
-  --kw-should-bg:38 92% 95%;--kw-should-fg:32 95% 44%;
-  --kw-may-bg:240 5% 96%;--kw-may-fg:240 4% 46%;
-  --kw-wont-bg:263 70% 96%;--kw-wont-fg:263 70% 50%;
-  --kw-given-bg:213 94% 96%;--kw-given-fg:213 94% 48%;
-  --kw-otherwise-bg:25 95% 95%;--kw-otherwise-fg:25 95% 53%;
-  --kw-temporal-bg:152 76% 95%;--kw-temporal-fg:152 69% 31%;
+  --kw-must-bg:0 72% 95%;--kw-must-fg:0 72% 45%;
+  --kw-should-bg:38 60% 95%;--kw-should-fg:38 50% 40%;
+  --kw-may-bg:240 5% 95%;--kw-may-fg:240 4% 46%;
+  --kw-wont-bg:260 30% 95%;--kw-wont-fg:260 30% 45%;
+  --kw-given-bg:213 40% 95%;--kw-given-fg:213 40% 43%;
+  --kw-otherwise-bg:25 40% 95%;--kw-otherwise-fg:25 40% 43%;
+  --kw-temporal-bg:152 30% 95%;--kw-temporal-fg:152 30% 35%;
 }
 
 [data-theme="dark"]{
@@ -162,13 +162,13 @@ const VIEWER_HTML: &str = r##"<!DOCTYPE html>
   --ring:240 4.9% 83.9%;--radius:0.5rem;
   --accent:240 3.7% 15.9%;--accent-foreground:0 0% 98%;
   --popover:240 10% 3.9%;
-  --kw-must-bg:0 63% 15%;--kw-must-fg:0 86% 75%;
-  --kw-should-bg:32 80% 14%;--kw-should-fg:38 92% 70%;
+  --kw-must-bg:0 30% 16%;--kw-must-fg:0 40% 70%;
+  --kw-should-bg:38 20% 15%;--kw-should-fg:38 30% 68%;
   --kw-may-bg:240 4% 16%;--kw-may-fg:240 5% 65%;
-  --kw-wont-bg:263 50% 16%;--kw-wont-fg:263 70% 75%;
-  --kw-given-bg:213 60% 15%;--kw-given-fg:213 94% 72%;
-  --kw-otherwise-bg:25 60% 14%;--kw-otherwise-fg:25 95% 70%;
-  --kw-temporal-bg:152 40% 13%;--kw-temporal-fg:152 69% 60%;
+  --kw-wont-bg:260 15% 16%;--kw-wont-fg:260 20% 68%;
+  --kw-given-bg:213 20% 16%;--kw-given-fg:213 25% 68%;
+  --kw-otherwise-bg:25 20% 15%;--kw-otherwise-fg:25 30% 68%;
+  --kw-temporal-bg:152 15% 15%;--kw-temporal-fg:152 20% 65%;
 }
 
 body{font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
