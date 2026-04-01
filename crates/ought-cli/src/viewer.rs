@@ -135,7 +135,7 @@ const VIEWER_HTML: &str = r##"<!DOCTYPE html>
 <title>ought viewer</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@500;600;700;800&family=Instrument+Sans:wght@400;500;600&family=Crimson+Pro:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@500;600;700;800&family=Instrument+Sans:wght@400;500;600&family=Charis+SIL:wght@400;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
@@ -271,7 +271,7 @@ color:hsl(var(--foreground));letter-spacing:.02em}
 .clause:last-child{border-bottom:none}
 .clause-condition{font-size:11px;color:hsl(var(--kw-given-fg));padding:6px 0 2px;font-weight:500;
 font-family:ui-monospace,SFMono-Regular,monospace;letter-spacing:-.2px}
-.clause-text{flex:1;font-family:"Crimson Pro",Georgia,serif;font-size:14px;line-height:1.6;
+.clause-text{flex:1;font-family:"Charis SIL",Charter,Georgia,serif;font-size:14px;line-height:1.6;
 color:hsl(var(--foreground) / .9)}
 .clause-hints{margin-top:6px}
 .clause-hint{background:hsl(var(--muted));border:1px solid hsl(var(--border));
