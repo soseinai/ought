@@ -186,10 +186,13 @@ padding:0 20px;display:flex;align-items:center;gap:16px;flex-shrink:0;height:52p
 .header h1 .logo{opacity:.5;font-size:13px;font-weight:400}
 .header .stats{font-size:12px;color:hsl(var(--muted-foreground));margin-left:auto;display:flex;gap:12px;align-items:center}
 .header .stats span{white-space:nowrap}
-.theme-toggle{background:transparent;border:1px solid hsl(var(--border));color:hsl(var(--foreground));
-cursor:pointer;padding:5px 12px;border-radius:calc(var(--radius) - 2px);font-size:12px;
-transition:background .15s,border-color .15s}
-.theme-toggle:hover{background:hsl(var(--accent));border-color:hsl(var(--accent))}
+.icon-btn{background:transparent;border:1px solid hsl(var(--border));color:hsl(var(--foreground));
+cursor:pointer;padding:6px;border-radius:calc(var(--radius) - 2px);display:inline-flex;
+align-items:center;justify-content:center;transition:background .15s,border-color .15s}
+.icon-btn:hover{background:hsl(var(--accent));border-color:hsl(var(--accent))}
+.icon-btn svg{width:15px;height:15px;stroke:currentColor;stroke-width:2;stroke-linecap:round;
+stroke-linejoin:round;fill:none}
+[data-theme="dark"] .icon-sun{display:none}[data-theme="light"] .icon-moon{display:none}
 
 /* Search */
 .search-bar{padding:10px 20px;background:hsl(var(--card));border-bottom:1px solid hsl(var(--border));
@@ -218,8 +221,10 @@ color:hsl(var(--foreground));transition:all .1s;white-space:nowrap;overflow:hidd
 border-radius:calc(var(--radius) - 2px);margin:1px 8px}
 .tree-item:hover{background:hsl(var(--accent))}
 .tree-item.active{background:hsl(var(--accent));font-weight:500}
-.tree-item .arrow{font-size:9px;width:12px;text-align:center;transition:transform .15s;flex-shrink:0;
-color:hsl(var(--muted-foreground))}
+.tree-item .arrow{width:14px;height:14px;transition:transform .15s;flex-shrink:0;
+color:hsl(var(--muted-foreground));display:inline-flex;align-items:center;justify-content:center}
+.tree-item .arrow svg{width:12px;height:12px;stroke:currentColor;stroke-width:2;stroke-linecap:round;
+stroke-linejoin:round;fill:none}
 .tree-item .arrow.open{transform:rotate(90deg)}
 .tree-section{padding-left:24px;font-size:12px;color:hsl(var(--muted-foreground));margin:1px 8px}
 .tree-children{display:none}.tree-children.open{display:block}
@@ -242,7 +247,9 @@ border-radius:var(--radius);margin-bottom:12px;overflow:hidden}
 .section-head{padding:12px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;
 font-weight:600;font-size:14px;user-select:none;color:hsl(var(--foreground));letter-spacing:-.2px}
 .section-head:hover{background:hsl(var(--accent))}
-.section-head .arrow{font-size:10px;transition:transform .15s;color:hsl(var(--muted-foreground))}
+.section-head .arrow{transition:transform .15s;color:hsl(var(--muted-foreground));display:inline-flex}
+.section-head .arrow svg{width:14px;height:14px;stroke:currentColor;stroke-width:2;stroke-linecap:round;
+stroke-linejoin:round;fill:none}
 .section-head .arrow.open{transform:rotate(90deg)}
 .section-head .clause-count{font-size:11px;color:hsl(var(--muted-foreground));font-weight:400;margin-left:auto;
 font-variant-numeric:tabular-nums}
@@ -302,9 +309,10 @@ border:1px solid hsl(var(--kw-temporal-fg) / .2);margin-left:6px;font-weight:600
 <div class="header">
   <h1>ought <span class="logo">/ viewer</span></h1>
   <div class="stats" id="stats"></div>
-  <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn" title="Toggle theme">Light</button>
+  <button class="icon-btn" onclick="toggleTheme()" id="theme-btn" title="Toggle theme"><svg class="icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg><svg class="icon-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></button>
 </div>
 <div class="search-bar">
+  <svg style="width:15px;height:15px;stroke:hsl(var(--muted-foreground));stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none;flex-shrink:0" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
   <input type="text" id="search" placeholder="Search clauses...">
   <div class="filter-pills" id="filters"></div>
 </div>
@@ -320,15 +328,12 @@ function toggleTheme(){
   const current=html.getAttribute("data-theme");
   const next=current==="dark"?"light":"dark";
   html.setAttribute("data-theme",next);
-  document.getElementById("theme-btn").textContent=next==="dark"?"Light":"Dark";
   localStorage.setItem("ought-theme",next);
 }
 // Restore saved theme (dark is default)
 (function(){
   const saved=localStorage.getItem("ought-theme");
-  if(saved){document.documentElement.setAttribute("data-theme",saved);
-    document.addEventListener("DOMContentLoaded",()=>{
-      const btn=document.getElementById("theme-btn");if(btn)btn.textContent=saved==="dark"?"Light":"Dark"})};
+  if(saved){document.documentElement.setAttribute("data-theme",saved)}
 })();
 const KW_LABELS={Must:"MUST",MustNot:"MUST NOT",Should:"SHOULD",ShouldNot:"SHOULD NOT",
   May:"MAY",Wont:"WONT",Given:"GIVEN",Otherwise:"OTHERWISE",MustAlways:"MUST ALWAYS",MustBy:"MUST BY"};
@@ -367,7 +372,7 @@ function renderSidebar(){
     const item=document.createElement("div");
     const cc=countSpecClauses(spec);
     item.className="tree-item";item.dataset.idx=si;
-    item.innerHTML=`<span class="arrow">&#9654;</span>${esc(spec.name)}<span class="tree-count">${cc}</span>`;
+    item.innerHTML=`<span class="arrow"><svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span><svg style="width:14px;height:14px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none;flex-shrink:0;opacity:.5" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg> ${esc(spec.name)}<span class="tree-count">${cc}</span>`;
     item.onclick=e=>{e.stopPropagation();selectSpec(si);toggleTree(item)};
     el.appendChild(item);
     const children=document.createElement("div");children.className="tree-children";
@@ -441,7 +446,7 @@ function renderSections(sections,q,depth){
       h+=renderClauseList(clauses)+subHtml+`</div>`;
     }else{
       const cc=sec.clauses.length;
-      h+=`<div class="section-card" id="${id}"><div class="section-head"><span class="arrow open">&#9654;</span>${esc(sec.title)}<span class="clause-count">${cc} clause${cc!==1?"s":""}</span></div>`;
+      h+=`<div class="section-card" id="${id}"><div class="section-head"><span class="arrow open"><svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span>${esc(sec.title)}<span class="clause-count">${cc} clause${cc!==1?"s":""}</span></div>`;
       h+=`<div class="section-body open">`;
       if(sec.prose)h+=`<div class="section-prose">${esc(sec.prose)}</div>`;
       h+=renderClauseList(clauses)+subHtml+`</div></div>`;
