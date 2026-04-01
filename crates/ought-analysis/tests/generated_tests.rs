@@ -6,28 +6,15 @@ use std::time::Duration;
 use chrono::Utc;
 use ought_analysis::types::*;
 use ought_analysis::{audit, bisect, blame, survey};
-use ought_gen::context::GenerationContext;
-use ought_gen::generator::{GeneratedTest, Generator, Language};
+use ought_gen::generator::{GeneratedTest, Language};
 use ought_run::runner::Runner;
 use ought_run::{RunResult, TestDetails, TestResult, TestStatus};
 use ought_spec::types::*;
 use ought_spec::SpecGraph;
 
 // =============================================================================
-// Helper: mock Generator for tests that need a Generator trait object
+// (StubGenerator removed -- analysis functions no longer take a generator)
 // =============================================================================
-
-struct StubGenerator;
-impl Generator for StubGenerator {
-    fn generate(&self, _: &Clause, _: &GenerationContext) -> anyhow::Result<GeneratedTest> {
-        Ok(GeneratedTest {
-            clause_id: ClauseId("stub::clause".to_string()),
-            code: "// stub".to_string(),
-            language: Language::Rust,
-            file_path: PathBuf::from("stub_test.rs"),
-        })
-    }
-}
 
 // =============================================================================
 // Helper: mock Runner for tests that need a Runner trait object
@@ -328,9 +315,7 @@ fn test_survey__must_read_source_files_from_the_given_path_or_project_source_roo
     let _ = std::fs::remove_dir_all(&empty_dir);
     std::fs::create_dir_all(&empty_dir).unwrap();
     let specs = SpecGraph::from_roots(&[empty_dir.clone()]).unwrap();
-    let generator = StubGenerator;
-
-    let result = survey::survey(&specs, &[tmp.clone()], &generator).unwrap();
+    let result = survey::survey(&specs, &[tmp.clone()]).unwrap();
 
     // Should find the uncovered function.
     assert!(
@@ -372,9 +357,7 @@ fn test_survey__must_read_all_existing_spec_files_to_know_what_is_already_covere
     .unwrap();
 
     let specs = SpecGraph::from_roots(&[spec_dir.clone()]).unwrap();
-    let generator = StubGenerator;
-
-    let result = survey::survey(&specs, &[tmp.clone()], &generator).unwrap();
+    let result = survey::survey(&specs, &[tmp.clone()]).unwrap();
 
     // "create_user" should NOT appear in uncovered (it's covered by the clause).
     let has_create = result.uncovered.iter().any(|u| u.description.contains("create_user"));
@@ -413,9 +396,7 @@ fn test_survey__must_use_the_llm_to_identify_public_behaviors_apis_and_logic_bra
     let _ = std::fs::remove_dir_all(&spec_dir);
     std::fs::create_dir_all(&spec_dir).unwrap();
     let specs = SpecGraph::from_roots(&[spec_dir.clone()]).unwrap();
-    let generator = StubGenerator;
-
-    let result = survey::survey(&specs, &[tmp.clone()], &generator).unwrap();
+    let result = survey::survey(&specs, &[tmp.clone()]).unwrap();
 
     // Should identify the public method.
     let public_found = result.uncovered.iter().any(|u| u.description.contains("public_api_method"));
@@ -702,9 +683,7 @@ fn test_audit__must_use_the_llm_to_identify_gaps_areas_where_related_clauses_exi
     .unwrap();
 
     let specs = SpecGraph::from_roots(&[spec_dir.clone()]).unwrap();
-    let generator = StubGenerator;
-
-    let result = audit::audit(&specs, &generator).unwrap();
+    let result = audit::audit(&specs).unwrap();
 
     // Should find a Gap finding about missing OTHERWISE.
     let has_gap = result.findings.iter().any(|f| f.kind == AuditFindingKind::Gap);
@@ -731,9 +710,7 @@ fn test_audit__must_use_the_llm_to_identify_contradictions_between_clauses_acros
     .unwrap();
 
     let specs = SpecGraph::from_roots(&[spec_dir.clone()]).unwrap();
-    let generator = StubGenerator;
-
-    let result = audit::audit(&specs, &generator);
+    let result = audit::audit(&specs);
     assert!(result.is_ok(), "audit must not panic on valid specs");
 
     let _ = std::fs::remove_dir_all(&spec_dir);
@@ -758,9 +735,7 @@ fn test_audit__must_read_all_spec_files_and_their_cross_references() {
     .unwrap();
 
     let specs = SpecGraph::from_roots(&[spec_dir.clone()]).unwrap();
-    let generator = StubGenerator;
-
-    let result = audit::audit(&specs, &generator).unwrap();
+    let result = audit::audit(&specs).unwrap();
 
     // The function should process without error on multiple spec files.
     // With these simple non-conflicting specs, there should be no findings.
@@ -787,9 +762,7 @@ fn test_audit__should_read_relevant_source_code_to_ground_the_analysis_in_implem
     .unwrap();
 
     let specs = SpecGraph::from_roots(&[spec_dir.clone()]).unwrap();
-    let generator = StubGenerator;
-
-    let result = audit::audit(&specs, &generator);
+    let result = audit::audit(&specs);
     assert!(result.is_ok(), "audit must not panic when source paths are referenced in specs");
 
     let _ = std::fs::remove_dir_all(&spec_dir);
@@ -1024,8 +997,7 @@ fn test_blame__must_use_git_history_to_find_when_the_clause_last_passed_and_what
         total_duration: Duration::from_millis(50),
     };
 
-    let generator = StubGenerator;
-    let result = blame::blame(&clause_id, &specs, &run_result, &generator).unwrap();
+    let result = blame::blame(&clause_id, &specs, &run_result).unwrap();
 
     assert_eq!(result.clause_id, clause_id);
     assert!(!result.narrative.is_empty(), "blame must produce a narrative");
@@ -1061,8 +1033,7 @@ fn test_blame__must_use_the_llm_to_correlate_the_source_diff_with_the_failure_an
         total_duration: Duration::from_millis(10),
     };
 
-    let generator = StubGenerator;
-    let result = blame::blame(&clause_id, &specs, &run_result, &generator);
+    let result = blame::blame(&clause_id, &specs, &run_result);
     assert!(result.is_ok(), "blame must not panic");
 
     let _ = std::fs::remove_dir_all(&spec_dir);
@@ -1093,8 +1064,7 @@ fn test_blame__must_retrieve_the_clause_its_generated_test_and_the_failure_outpu
         total_duration: Duration::from_millis(100),
     };
 
-    let generator = StubGenerator;
-    let result = blame::blame(&clause_id, &specs, &run_result, &generator).unwrap();
+    let result = blame::blame(&clause_id, &specs, &run_result).unwrap();
 
     assert!(
         result.narrative.contains("assertion failed") || result.narrative.contains("not persisted"),
@@ -1323,42 +1293,8 @@ fn test_bisect__should_cache_test_results_per_commit_to_avoid_redundant_runs() {
 }
 
 // =============================================================================
-// TRAIT TESTS -- verify Generator and Runner traits can be implemented
+// TRAIT TESTS -- verify Runner trait can be implemented
 // =============================================================================
-
-/// The Generator trait can be implemented with a mock.
-#[test]
-fn test_traits__generator_trait_can_be_implemented() {
-    let generator = StubGenerator;
-    let clause = Clause {
-        id: ClauseId("test::clause".to_string()),
-        keyword: Keyword::Must,
-        severity: Severity::Required,
-        text: "do something".to_string(),
-        condition: None,
-        otherwise: vec![],
-        temporal: None,
-        hints: vec![],
-        source_location: SourceLocation {
-            file: PathBuf::from("test.ought.md"),
-            line: 1,
-        },
-        content_hash: "abc123".to_string(),
-    };
-    let ctx = GenerationContext {
-        spec_context: None,
-        source_files: vec![],
-        schema_files: vec![],
-        target_language: Language::Rust,
-        verbose: false,
-    };
-
-    let result = generator.generate(&clause, &ctx);
-    assert!(result.is_ok(), "mock generator must succeed");
-    let test = result.unwrap();
-    assert_eq!(test.clause_id, ClauseId("stub::clause".to_string()));
-    assert_eq!(test.language, Language::Rust);
-}
 
 /// The Runner trait can be implemented with a mock.
 #[test]
@@ -1374,37 +1310,6 @@ fn test_traits__runner_trait_can_be_implemented() {
     assert_eq!(run_result.total_duration, Duration::ZERO);
 }
 
-/// The Generator trait is object-safe (can be used as dyn Generator).
-#[test]
-fn test_traits__generator_is_object_safe() {
-    let generator: Box<dyn Generator> = Box::new(StubGenerator);
-    let clause = Clause {
-        id: ClauseId("test::clause".to_string()),
-        keyword: Keyword::Must,
-        severity: Severity::Required,
-        text: "do something".to_string(),
-        condition: None,
-        otherwise: vec![],
-        temporal: None,
-        hints: vec![],
-        source_location: SourceLocation {
-            file: PathBuf::from("test.ought.md"),
-            line: 1,
-        },
-        content_hash: "abc123".to_string(),
-    };
-    let ctx = GenerationContext {
-        spec_context: None,
-        source_files: vec![],
-        schema_files: vec![],
-        target_language: Language::Rust,
-        verbose: false,
-    };
-
-    let result = generator.generate(&clause, &ctx);
-    assert!(result.is_ok());
-}
-
 /// The Runner trait is object-safe (can be used as dyn Runner).
 #[test]
 fn test_traits__runner_is_object_safe() {
@@ -1418,30 +1323,28 @@ fn test_traits__runner_is_object_safe() {
 // =============================================================================
 
 /// survey() function exists with the expected signature.
-/// It takes (&SpecGraph, &[PathBuf], &dyn Generator) and returns Result<SurveyResult>.
+/// It takes (&SpecGraph, &[PathBuf]) and returns Result<SurveyResult>.
 #[test]
 fn test_signatures__survey_function_exists() {
-    // Verify the function pointer has the expected type by assigning it.
-    let _fn_ptr: fn(&SpecGraph, &[PathBuf], &dyn Generator) -> anyhow::Result<SurveyResult> =
+    let _fn_ptr: fn(&SpecGraph, &[PathBuf]) -> anyhow::Result<SurveyResult> =
         survey::survey;
 }
 
 /// audit() function exists with the expected signature.
-/// It takes (&SpecGraph, &dyn Generator) and returns Result<AuditResult>.
+/// It takes (&SpecGraph) and returns Result<AuditResult>.
 #[test]
 fn test_signatures__audit_function_exists() {
-    let _fn_ptr: fn(&SpecGraph, &dyn Generator) -> anyhow::Result<AuditResult> = audit::audit;
+    let _fn_ptr: fn(&SpecGraph) -> anyhow::Result<AuditResult> = audit::audit;
 }
 
 /// blame() function exists with the expected signature.
-/// It takes (&ClauseId, &SpecGraph, &RunResult, &dyn Generator) and returns Result<BlameResult>.
+/// It takes (&ClauseId, &SpecGraph, &RunResult) and returns Result<BlameResult>.
 #[test]
 fn test_signatures__blame_function_exists() {
     let _fn_ptr: fn(
         &ClauseId,
         &SpecGraph,
         &RunResult,
-        &dyn Generator,
     ) -> anyhow::Result<BlameResult> = blame::blame;
 }
 

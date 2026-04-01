@@ -48,17 +48,6 @@ impl ToolHandler {
         })
     }
 
-    /// Build a generator from config.
-    fn make_generator(
-        &self,
-        config: &Config,
-    ) -> anyhow::Result<Box<dyn ought_gen::Generator>> {
-        ought_gen::providers::from_config(
-            &config.generator.provider,
-            config.generator.model.as_deref(),
-        )
-    }
-
     /// Wrap a tool result with timing metadata.
     fn with_timing(start: Instant, mut value: Value) -> Value {
         if let Some(obj) = value.as_object_mut() {
@@ -132,18 +121,12 @@ impl ToolHandler {
         let start = Instant::now();
         let config = self.load_config()?;
         let specs = self.load_specs(&config)?;
-        let generator = self.make_generator(&config)?;
 
         let base = self
             .config_path
             .parent()
             .unwrap_or_else(|| std::path::Path::new("."));
 
-        // Determine which clauses to generate
-        let filter_clause_id = args
-            .get("clause_id")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
         let force = args
             .get("force")
             .and_then(|v| v.as_bool())
@@ -153,36 +136,23 @@ impl ToolHandler {
         let manifest_path = base.join("ought/ought-gen/manifest.toml");
         let manifest = ought_gen::Manifest::load(&manifest_path)?;
 
-        let context_assembler = ought_gen::ContextAssembler::new(&config);
-        let mut generated_count = 0;
-
+        // Count stale clauses (generation is now done via the agent/orchestrator)
+        let mut stale_count = 0;
         for spec in specs.specs() {
             for section in &spec.sections {
                 let clauses = collect_clauses(section);
                 for clause in clauses {
-                    // Apply filter
-                    if let Some(ref filter_id) = filter_clause_id
-                        && clause.id.0 != *filter_id {
-                            continue;
-                        }
-
-                    // Check staleness
-                    if !force
-                        && !manifest.is_stale(&clause.id, &clause.content_hash, "")
-                    {
-                        continue;
+                    if force || manifest.is_stale(&clause.id, &clause.content_hash, "") {
+                        stale_count += 1;
                     }
-
-                    let context = context_assembler.assemble(clause, spec)?;
-                    let _test = generator.generate(clause, &context)?;
-                    generated_count += 1;
                 }
             }
         }
 
         let result = serde_json::json!({
-            "generated": generated_count,
+            "stale_clauses": stale_count,
             "force": force,
+            "message": "Use `ought generate` CLI to run agent-based generation",
         });
         Ok(Self::with_timing(start, result))
     }
@@ -259,14 +229,12 @@ impl ToolHandler {
         // Find the clause across all specs
         let target_id = ClauseId(clause_id_str.to_string());
         let mut found_clause = None;
-        let mut found_spec = None;
 
         'outer: for spec in specs.specs() {
             for section in &spec.sections {
                 for clause in collect_clauses(section) {
                     if clause.id == target_id {
                         found_clause = Some(clause.clone());
-                        found_spec = Some(spec);
                         break 'outer;
                     }
                 }
@@ -275,21 +243,14 @@ impl ToolHandler {
 
         let clause =
             found_clause.ok_or_else(|| anyhow::anyhow!("clause not found: {}", clause_id_str))?;
-        let spec = found_spec.unwrap();
-
-        // Generate the test code
-        let context_assembler = ought_gen::ContextAssembler::new(&config);
-        let context = context_assembler.assemble(&clause, spec)?;
-        let generator = self.make_generator(&config)?;
-        let test = generator.generate(&clause, &context)?;
 
         let result = serde_json::json!({
             "clause_id": clause.id.0,
             "keyword": format!("{:?}", clause.keyword),
             "text": clause.text,
-            "code": test.code,
-            "language": format!("{:?}", test.language),
-            "file_path": test.file_path.display().to_string(),
+            "condition": clause.condition,
+            "hints": clause.hints,
+            "content_hash": clause.content_hash,
         });
         Ok(Self::with_timing(start, result))
     }
@@ -349,7 +310,6 @@ impl ToolHandler {
         let start = Instant::now();
         let config = self.load_config()?;
         let specs = self.load_specs(&config)?;
-        let generator = self.make_generator(&config)?;
 
         let paths: Vec<PathBuf> = args
             .get("paths")
@@ -361,7 +321,7 @@ impl ToolHandler {
             })
             .unwrap_or_default();
 
-        let result = ought_analysis::survey::survey(&specs, &paths, generator.as_ref())?;
+        let result = ought_analysis::survey::survey(&specs, &paths)?;
 
         let uncovered: Vec<Value> = result
             .uncovered
@@ -389,9 +349,8 @@ impl ToolHandler {
         let start = Instant::now();
         let config = self.load_config()?;
         let specs = self.load_specs(&config)?;
-        let generator = self.make_generator(&config)?;
 
-        let result = ought_analysis::audit::audit(&specs, generator.as_ref())?;
+        let result = ought_analysis::audit::audit(&specs)?;
 
         let findings: Vec<Value> = result
             .findings
@@ -423,7 +382,6 @@ impl ToolHandler {
 
         let config = self.load_config()?;
         let specs = self.load_specs(&config)?;
-        let generator = self.make_generator(&config)?;
 
         let clause_id = ClauseId(clause_id_str.to_string());
 
@@ -434,7 +392,7 @@ impl ToolHandler {
         };
 
         let result =
-            ought_analysis::blame::blame(&clause_id, &specs, &empty_run, generator.as_ref())?;
+            ought_analysis::blame::blame(&clause_id, &specs, &empty_run)?;
 
         let result = serde_json::json!({
             "clause_id": result.clause_id.0,

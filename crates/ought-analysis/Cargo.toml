@@ -17,4 +17,3 @@ anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 chrono.workspace = true
-tokio.workspace = true

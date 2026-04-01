@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
-use ought_spec::{Clause, ClauseId};
-
-use crate::context::GenerationContext;
+use ought_spec::ClauseId;
 
 /// A test generated from a single clause.
 #[derive(Debug, Clone)]
@@ -23,43 +21,18 @@ pub enum Language {
     Go,
 }
 
-/// A group of related clauses from one section, to be generated in a single
-/// LLM call. GIVEN conditions are included as context, not as testable clauses.
-#[derive(Debug, Clone)]
-pub struct ClauseGroup<'a> {
-    /// Section path for display (e.g. "Auth API > Login").
-    pub section_path: String,
-    /// Testable clauses (MUST, SHOULD, MAY, WONT, MUST ALWAYS, MUST BY, OTHERWISE).
-    pub clauses: Vec<&'a Clause>,
-    /// GIVEN conditions that scope clauses in this group (context, not testable).
-    pub conditions: Vec<String>,
-}
-
-/// Trait implemented by each LLM provider.
-///
-/// Providers are invoked by exec-ing their CLI tools (e.g. `claude`, `chatgpt`,
-/// `ollama`) rather than calling APIs directly. This avoids all auth management.
-pub trait Generator: Send + Sync {
-    /// Generate a test for a single clause, given the assembled context.
-    fn generate(
-        &self,
-        clause: &Clause,
-        context: &GenerationContext,
-    ) -> anyhow::Result<GeneratedTest>;
-
-    /// Generate tests for a batch of related clauses in a single LLM call.
-    /// Returns one GeneratedTest per clause in the group.
-    ///
-    /// Default implementation falls back to per-clause generation.
-    fn generate_batch(
-        &self,
-        group: &ClauseGroup<'_>,
-        context: &GenerationContext,
-    ) -> anyhow::Result<Vec<GeneratedTest>> {
-        let mut results = Vec::new();
-        for clause in &group.clauses {
-            results.push(self.generate(clause, context)?);
-        }
-        Ok(results)
+/// Convert a keyword enum to its display string.
+pub fn keyword_str(kw: ought_spec::Keyword) -> &'static str {
+    match kw {
+        ought_spec::Keyword::Must => "MUST",
+        ought_spec::Keyword::MustNot => "MUST NOT",
+        ought_spec::Keyword::Should => "SHOULD",
+        ought_spec::Keyword::ShouldNot => "SHOULD NOT",
+        ought_spec::Keyword::May => "MAY",
+        ought_spec::Keyword::Wont => "WONT",
+        ought_spec::Keyword::Given => "GIVEN",
+        ought_spec::Keyword::Otherwise => "OTHERWISE",
+        ought_spec::Keyword::MustAlways => "MUST ALWAYS",
+        ought_spec::Keyword::MustBy => "MUST BY",
     }
 }

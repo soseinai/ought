@@ -14,19 +14,53 @@ pub struct Orchestrator {
     verbose: bool,
 }
 
-/// The system prompt sent to each agent.
-const AGENT_SYSTEM_PROMPT: &str = "\
-You are a test generation agent for the ought behavioral test framework.
+/// Build the system prompt for an agent, including its source file paths.
+fn build_system_prompt(assignment: &AgentAssignment) -> String {
+    let mut prompt = String::from(
+        "You are a test generation agent for the ought behavioral test framework.\n\n"
+    );
 
-Use the provided MCP tools to generate tests:
-1. Call get_assignment to see your assigned clause groups
-2. For each group, use read_source and list_source_files to understand the implementation
-3. Generate test functions and write them using write_test or write_tests_batch
-4. Call check_compiles to verify tests compile, fix any errors
-5. Call report_progress to report your status
+    // Tell the agent about source files to read
+    if !assignment.source_paths.is_empty() {
+        prompt.push_str("IMPORTANT: Before generating tests, read the source files for the code under test.\n");
+        prompt.push_str("Use read_source to read these files:\n");
+        for path in &assignment.source_paths {
+            prompt.push_str(&format!("  - {}\n", path));
+        }
+        prompt.push_str("\nIf a source file doesn't exist yet, that's OK. ");
+        prompt.push_str("You are in TDD mode: write tests against the expected interface ");
+        prompt.push_str("described in the spec clauses. Assume reasonable function signatures ");
+        prompt.push_str("and types based on the clause text. The implementation will be written ");
+        prompt.push_str("to make these tests pass.\n\n");
+    } else {
+        prompt.push_str("You are in TDD mode. The source code may not exist yet. ");
+        prompt.push_str("Write tests against the expected interface described in the spec clauses. ");
+        prompt.push_str("Assume reasonable function signatures and types.\n\n");
+    }
 
-Generate self-contained tests with the clause text as a doc comment.
-Use #[test] for Rust, def test_ for Python, test() for JS/TS, func Test for Go.";
+    prompt.push_str(
+        "Use the provided MCP tools to generate tests:\n\
+         1. Call get_assignment to see your assigned clause groups\n\
+         2. Use read_source to read the source files listed above (and any others you need)\n\
+         3. Generate test functions and write them using write_test or write_tests_batch\n\
+         4. Call check_compiles to verify tests compile, fix any errors\n\
+         5. Call report_progress to report your status\n\n\
+         Generate self-contained tests with the clause text as a doc comment.\n"
+    );
+
+    prompt.push_str(&format!("Target language: {}. ", assignment.target_language));
+    match assignment.target_language.as_str() {
+        "rust" => prompt.push_str("Use #[test] attribute and assert! macros.\n"),
+        "python" => prompt.push_str("Use def test_... with assert statements.\n"),
+        "typescript" | "ts" | "javascript" | "js" => {
+            prompt.push_str("Use test() or it() with expect() assertions (Jest style).\n")
+        }
+        "go" => prompt.push_str("Use func Test...(t *testing.T) with t.Error/t.Fatal.\n"),
+        _ => prompt.push_str("Use the language's standard test conventions.\n"),
+    }
+
+    prompt
+}
 
 impl Orchestrator {
     pub fn new(config: &Config, verbose: bool) -> Self {
@@ -109,6 +143,8 @@ impl Orchestrator {
                     let clause_count: usize =
                         assignment.groups.iter().map(|g| g.clauses.len()).sum();
 
+                    let system_prompt = build_system_prompt(assignment);
+
                     std::thread::spawn(move || {
                         if verbose {
                             eprintln!(
@@ -121,6 +157,7 @@ impl Orchestrator {
                             &agent_command,
                             model.as_deref(),
                             &mcp_config_path,
+                            &system_prompt,
                             verbose,
                         );
 
@@ -174,13 +211,14 @@ fn run_single_agent(
     agent_command: &str,
     model: Option<&str>,
     mcp_config_path: &std::path::Path,
+    system_prompt: &str,
     verbose: bool,
 ) -> anyhow::Result<AgentReport> {
     let mut args: Vec<String> = vec![
         "--mcp-config".into(),
         mcp_config_path.to_string_lossy().into_owned(),
         "-p".into(),
-        AGENT_SYSTEM_PROMPT.into(),
+        system_prompt.into(),
     ];
 
     if let Some(m) = model {

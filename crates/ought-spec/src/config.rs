@@ -48,19 +48,8 @@ pub struct GeneratorConfig {
     pub model: Option<String>,
     #[serde(default)]
     pub tolerance: ToleranceConfig,
-    #[serde(default)]
-    pub mode: GenerationMode,
     #[serde(default = "default_parallelism")]
     pub parallelism: usize,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub enum GenerationMode {
-    #[default]
-    #[serde(rename = "prompt")]
-    Prompt,
-    #[serde(rename = "agent")]
-    Agent,
 }
 
 impl Default for GeneratorConfig {
@@ -69,7 +58,6 @@ impl Default for GeneratorConfig {
             provider: "claude".to_string(),
             model: None,
             tolerance: ToleranceConfig::default(),
-            mode: GenerationMode::default(),
             parallelism: default_parallelism(),
         }
     }

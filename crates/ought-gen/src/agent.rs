@@ -8,6 +8,9 @@ pub struct AgentAssignment {
     pub config_path: String,
     pub test_dir: String,
     pub target_language: String,
+    /// Source file/directory paths from spec metadata that the agent should read
+    /// to understand the code under test.
+    pub source_paths: Vec<String>,
     pub groups: Vec<AssignmentGroup>,
 }
 

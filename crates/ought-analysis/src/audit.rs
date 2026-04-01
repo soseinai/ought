@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use ought_gen::Generator;
 use ought_spec::{Clause, Keyword, Section, SpecGraph, Temporal};
 
 use crate::types::{AuditFinding, AuditFindingKind, AuditResult};
@@ -11,10 +10,7 @@ use crate::types::{AuditFinding, AuditFindingKind, AuditResult};
 /// Detects: contradictory clauses, MUST BY deadline conflicts,
 /// MUST ALWAYS invariant conflicts, overlapping GIVEN conditions
 /// with contradictory obligations, and missing OTHERWISE chains.
-///
-/// The generator parameter is accepted for future LLM-powered deep analysis
-/// but structural checks work without it.
-pub fn audit(specs: &SpecGraph, _generator: &dyn Generator) -> anyhow::Result<AuditResult> {
+pub fn audit(specs: &SpecGraph) -> anyhow::Result<AuditResult> {
     let mut findings: Vec<AuditFinding> = Vec::new();
 
     // Collect all clauses from all specs with their section paths.

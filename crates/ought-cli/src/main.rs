@@ -4,10 +4,8 @@ use std::process;
 use clap::{Parser, Subcommand};
 
 use ought_gen::manifest::Manifest;
-use ought_gen::providers;
 use ought_report::types::{ColorChoice as ReportColor, ReportOptions};
 use ought_run::runners;
-use ought_spec::config::GenerationMode;
 use ought_spec::{Config, SpecGraph};
 
 #[derive(Parser)]
@@ -225,12 +223,13 @@ fn load_specs(config: &Config, config_path: &std::path::Path) -> anyhow::Result<
     })
 }
 
-/// A section group ready for batch generation.
+/// A section group ready for agent-based generation.
 struct SectionGroup<'a> {
-    spec: &'a ought_spec::Spec,
     section_path: String,
     testable_clauses: Vec<&'a ought_spec::Clause>,
     conditions: Vec<String>,
+    /// Source paths from the spec's metadata (for the agent to read).
+    source_paths: Vec<String>,
 }
 
 /// Collect section groups from all specs. Each section becomes one batch.
@@ -239,15 +238,16 @@ struct SectionGroup<'a> {
 fn collect_section_groups(specs: &SpecGraph) -> Vec<SectionGroup<'_>> {
     let mut groups = Vec::new();
     for spec in specs.specs() {
-        collect_groups_from_sections(spec, &spec.sections, &spec.name, &mut groups);
+        let source_paths = spec.metadata.sources.clone();
+        collect_groups_from_sections(&spec.sections, &spec.name, &source_paths, &mut groups);
     }
     groups
 }
 
 fn collect_groups_from_sections<'a>(
-    spec: &'a ought_spec::Spec,
     sections: &'a [ought_spec::Section],
     parent_path: &str,
+    source_paths: &[String],
     groups: &mut Vec<SectionGroup<'a>>,
 ) {
     for section in sections {
@@ -279,15 +279,15 @@ fn collect_groups_from_sections<'a>(
 
         if !testable.is_empty() {
             groups.push(SectionGroup {
-                spec,
                 section_path: section_path.clone(),
                 testable_clauses: testable,
                 conditions,
+                source_paths: source_paths.to_vec(),
             });
         }
 
         // Recurse into subsections
-        collect_groups_from_sections(spec, &section.subsections, &section_path, groups);
+        collect_groups_from_sections(&section.subsections, &section_path, source_paths, groups);
     }
 }
 
@@ -426,6 +426,26 @@ fn build_agent_assignments(
         buckets[i % n].push(group);
     }
 
+    // Collect unique source paths from groups assigned to each agent.
+    let source_paths_per_bucket: Vec<Vec<String>> = buckets
+        .iter()
+        .map(|_| {
+            // We'll populate per-bucket below
+            Vec::new()
+        })
+        .collect();
+
+    // Actually, collect from the original groups before they were partitioned.
+    // Simpler: collect all source paths from all groups into each assignment
+    // (they're reading source for context, not writing to it).
+    let all_source_paths: Vec<String> = groups
+        .iter()
+        .flat_map(|g| g.source_paths.iter().cloned())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    let _ = source_paths_per_bucket;
+
     buckets
         .into_iter()
         .enumerate()
@@ -436,6 +456,7 @@ fn build_agent_assignments(
             config_path: config_path.to_string_lossy().to_string(),
             test_dir: test_dir.to_string_lossy().to_string(),
             target_language: target_language.clone(),
+            source_paths: all_source_paths.clone(),
             groups,
         })
         .collect()
@@ -443,7 +464,7 @@ fn build_agent_assignments(
 
 /// Convert a spec Clause into an AssignmentClause (serializable).
 fn clause_to_assignment_clause(clause: &ought_spec::Clause) -> ought_gen::AssignmentClause {
-    let keyword = ought_gen::providers::keyword_str(clause.keyword).to_string();
+    let keyword = ought_gen::keyword_str(clause.keyword).to_string();
     let temporal = clause.temporal.as_ref().map(|t| match t {
         ought_spec::Temporal::Invariant => "MUST ALWAYS".to_string(),
         ought_spec::Temporal::Deadline(dur) => format!("MUST BY {:?}", dur),
@@ -713,184 +734,50 @@ fn cmd_generate(cli: &Cli, args: &GenerateArgs) -> anyhow::Result<()> {
     let groups = collect_section_groups(&specs);
 
     let mut generated_count = 0;
-    let mut skipped_count = 0;
     let mut error_count = 0;
     let mut stale_count = 0;
 
-    match config.generator.mode {
-        GenerationMode::Agent => {
-            // Agent mode: spawn LLM agents with MCP server connections.
-            let assignments = build_agent_assignments(
-                &groups,
-                &manifest,
-                &config,
-                &config_path,
-                &test_dir,
-                config.generator.parallelism.max(1),
-                args.force,
-            );
-
-            if assignments.is_empty() {
-                eprintln!("All tests up to date, nothing to generate.");
-            } else {
-                let total_clauses: usize =
-                    assignments.iter().map(|a| a.groups.iter().map(|g| g.clauses.len()).sum::<usize>()).sum();
-                eprintln!(
-                    "Agent mode: {} assignments, {} clauses to generate",
-                    assignments.len(),
-                    total_clauses
-                );
-
-                let orchestrator = ought_gen::Orchestrator::new(&config, cli.verbose);
-                let reports = orchestrator.run(assignments)?;
-
-                for report in &reports {
-                    generated_count += report.generated;
-                    for err in &report.errors {
-                        eprintln!("  error: {}", err);
-                        error_count += 1;
-                    }
+    if args.check {
+        // In check mode, just count stale clauses.
+        for group in &groups {
+            for clause in &group.testable_clauses {
+                if args.force || manifest.is_stale(&clause.id, &clause.content_hash, "") {
+                    eprintln!("  stale: {}", clause.id);
+                    stale_count += 1;
                 }
             }
         }
-        GenerationMode::Prompt => {
-            // Existing prompt-based code path (unchanged).
-            let generator = providers::from_config(
-                &config.generator.provider,
-                config.generator.model.as_deref(),
-            )?;
+    } else {
+        // Agent mode: spawn LLM agents with MCP server connections.
+        let assignments = build_agent_assignments(
+            &groups,
+            &manifest,
+            &config,
+            &config_path,
+            &test_dir,
+            config.generator.parallelism.max(1),
+            args.force,
+        );
 
-            let assembler = ought_gen::ContextAssembler::new(&config);
+        if assignments.is_empty() {
+            eprintln!("All tests up to date, nothing to generate.");
+        } else {
+            let total_clauses: usize =
+                assignments.iter().map(|a| a.groups.iter().map(|g| g.clauses.len()).sum::<usize>()).sum();
+            eprintln!(
+                "{} assignments, {} clauses to generate",
+                assignments.len(),
+                total_clauses
+            );
 
-            for group in &groups {
-                // Filter to only stale clauses in this group
-                let stale_clauses: Vec<&ought_spec::Clause> = group
-                    .testable_clauses
-                    .iter()
-                    .filter(|c| {
-                        if args.force {
-                            true
-                        } else {
-                            manifest.is_stale(&c.id, &c.content_hash, "")
-                        }
-                    })
-                    .copied()
-                    .collect();
+            let orchestrator = ought_gen::Orchestrator::new(&config, cli.verbose);
+            let reports = orchestrator.run(assignments)?;
 
-                let fresh_count = group.testable_clauses.len() - stale_clauses.len();
-                skipped_count += fresh_count;
-
-                if stale_clauses.is_empty() {
-                    continue;
-                }
-
-                if args.check {
-                    for clause in &stale_clauses {
-                        eprintln!("  stale: {}", clause.id);
-                    }
-                    stale_count += stale_clauses.len();
-                    continue;
-                }
-
-                // Build the batch group
-                let batch = ought_gen::ClauseGroup {
-                    section_path: group.section_path.clone(),
-                    clauses: stale_clauses.clone(),
-                    conditions: group.conditions.clone(),
-                };
-
-                let clause_count = batch.clauses.len();
-
-                // Print section header
-                eprintln!();
-                eprintln!(
-                    "  \x1b[1m{}\x1b[0m ({} clauses)",
-                    group.section_path, clause_count
-                );
-
-                // In verbose mode, list the clauses being generated
-                if cli.verbose {
-                    for clause in &stale_clauses {
-                        eprintln!(
-                            "    \x1b[2m{} {}\x1b[0m",
-                            ought_gen::providers::keyword_str(clause.keyword),
-                            clause.text,
-                        );
-                    }
-                    if !group.conditions.is_empty() {
-                        for cond in &group.conditions {
-                            eprintln!("    \x1b[2mGIVEN: {}\x1b[0m", cond);
-                        }
-                    }
-                }
-
-                // Assemble context from the first clause (they share a section/spec)
-                let mut context = assembler
-                    .assemble(stale_clauses[0], group.spec)
-                    .unwrap_or_else(|_| ought_gen::context::GenerationContext {
-                        spec_context: group.spec.metadata.context.clone(),
-                        source_files: vec![],
-                        schema_files: vec![],
-                        target_language: ought_gen::generator::Language::Rust,
-                        verbose: false,
-                    });
-                context.verbose = cli.verbose;
-
-                if cli.verbose && !context.source_files.is_empty() {
-                    eprintln!(
-                        "    \x1b[2mcontext: {} source files\x1b[0m",
-                        context.source_files.len()
-                    );
-                }
-
-                match generator.generate_batch(&batch, &context) {
-                    Ok(tests) => {
-                        for test in &tests {
-                            let file_path = test_dir.join(&test.file_path);
-                            if let Some(parent) = file_path.parent() {
-                                std::fs::create_dir_all(parent)?;
-                            }
-                            std::fs::write(&file_path, &test.code)?;
-
-                            manifest.entries.insert(
-                                test.clause_id.0.clone(),
-                                ought_gen::manifest::ManifestEntry {
-                                    clause_hash: stale_clauses
-                                        .iter()
-                                        .find(|c| c.id == test.clause_id)
-                                        .map(|c| c.content_hash.clone())
-                                        .unwrap_or_default(),
-                                    source_hash: String::new(),
-                                    generated_at: chrono::Utc::now(),
-                                    model: config
-                                        .generator
-                                        .model
-                                        .clone()
-                                        .unwrap_or_else(|| "default".into()),
-                                },
-                            );
-                        }
-                        eprintln!(
-                            "  \x1b[32m\u{2713}\x1b[0m {} tests generated",
-                            tests.len()
-                        );
-                        if cli.verbose {
-                            for test in &tests {
-                                eprintln!(
-                                    "    \x1b[2mwrote {}\x1b[0m",
-                                    test.file_path.display()
-                                );
-                            }
-                        }
-                        generated_count += tests.len();
-
-                        // Save manifest after each batch so ctrl+c doesn't lose progress
-                        manifest.save(&manifest_path)?;
-                    }
-                    Err(e) => {
-                        eprintln!("  \x1b[31m\u{2717}\x1b[0m error: {}", e);
-                        error_count += clause_count;
-                    }
+            for report in &reports {
+                generated_count += report.generated;
+                for err in &report.errors {
+                    eprintln!("  error: {}", err);
+                    error_count += 1;
                 }
             }
         }
@@ -905,8 +792,8 @@ fn cmd_generate(cli: &Cli, args: &GenerateArgs) -> anyhow::Result<()> {
     manifest.save(&manifest_path)?;
 
     eprintln!(
-        "\n{} generated, {} up-to-date, {} errors",
-        generated_count, skipped_count, error_count
+        "\n{} generated, {} errors",
+        generated_count, error_count
     );
 
     if args.check && stale_count > 0 {
@@ -964,7 +851,7 @@ fn cmd_inspect(cli: &Cli, args: &InspectArgs) -> anyhow::Result<()> {
         let clause = find_clause_by_id(&specs, &args.clause)
             .or_else(|| find_clause_by_partial_id(&specs, &args.clause));
         if let Some(clause) = clause {
-            println!("// Clause: {} {}", ought_gen::providers::keyword_str(clause.keyword), clause.text);
+            println!("// Clause: {} {}", ought_gen::keyword_str(clause.keyword), clause.text);
             if let Some(ref cond) = clause.condition {
                 println!("//   GIVEN: {}", cond);
             }
@@ -1262,7 +1149,7 @@ fn cmd_diff(cli: &Cli) -> anyhow::Result<()> {
         println!("+++ {} (pending)", diff.spec_file);
         println!("@@ {}/{} clauses stale @@", diff.stale.len(), diff.total);
         for sc in &diff.stale {
-            let kw = ought_gen::providers::keyword_str(sc.keyword);
+            let kw = ought_gen::keyword_str(sc.keyword);
             println!("  M {}  ({}, {} {})", sc.id, sc.reason, kw, sc.text);
         }
         println!();
@@ -1452,11 +1339,6 @@ fn cmd_survey(cli: &Cli, args: &SurveyArgs) -> anyhow::Result<()> {
     let (config_path, config) = load_config(&cli.config)?;
     let specs = load_specs(&config, &config_path)?;
 
-    let generator = providers::from_config(
-        &config.generator.provider,
-        config.generator.model.as_deref(),
-    )?;
-
     let paths: Vec<PathBuf> = if let Some(ref path) = args.path {
         vec![path.clone()]
     } else {
@@ -1473,7 +1355,7 @@ fn cmd_survey(cli: &Cli, args: &SurveyArgs) -> anyhow::Result<()> {
             .collect()
     };
 
-    let result = ought_analysis::survey::survey(&specs, &paths, generator.as_ref())?;
+    let result = ought_analysis::survey::survey(&specs, &paths)?;
 
     if cli.json {
         // Simple JSON output.
@@ -1525,12 +1407,7 @@ fn cmd_audit(cli: &Cli) -> anyhow::Result<()> {
     let (config_path, config) = load_config(&cli.config)?;
     let specs = load_specs(&config, &config_path)?;
 
-    let generator = providers::from_config(
-        &config.generator.provider,
-        config.generator.model.as_deref(),
-    )?;
-
-    let result = ought_analysis::audit::audit(&specs, generator.as_ref())?;
+    let result = ought_analysis::audit::audit(&specs)?;
 
     if cli.json {
         println!("{{");
@@ -1602,11 +1479,6 @@ fn cmd_blame(cli: &Cli, args: &BlameArgs) -> anyhow::Result<()> {
     let (config_path, config) = load_config(&cli.config)?;
     let specs = load_specs(&config, &config_path)?;
 
-    let generator = providers::from_config(
-        &config.generator.provider,
-        config.generator.model.as_deref(),
-    )?;
-
     // We need run results. Run the tests first.
     let runner_name = config.runner.keys().next().cloned().unwrap_or("rust".into());
     let runner = runners::from_name(&runner_name)?;
@@ -1629,7 +1501,7 @@ fn cmd_blame(cli: &Cli, args: &BlameArgs) -> anyhow::Result<()> {
     };
 
     let clause_id = ought_spec::ClauseId(args.clause.clone());
-    let result = ought_analysis::blame::blame(&clause_id, &specs, &results, generator.as_ref())?;
+    let result = ought_analysis::blame::blame(&clause_id, &specs, &results)?;
 
     if cli.json {
         let commit_json = if let Some(ref c) = result.likely_commit {

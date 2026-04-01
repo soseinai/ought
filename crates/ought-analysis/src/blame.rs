@@ -1,5 +1,4 @@
 use chrono::{DateTime, Utc};
-use ought_gen::Generator;
 use ought_run::{RunResult, TestStatus};
 use ought_spec::{ClauseId, Section, SpecGraph};
 
@@ -8,13 +7,11 @@ use crate::types::{BlameResult, CommitInfo};
 /// Explain why a clause is failing by correlating with git history.
 ///
 /// Finds when the clause last passed, what commits changed since,
-/// and produces a causal narrative. Uses structural analysis from git
-/// history; the LLM generator is accepted for future narrative enrichment.
+/// and produces a causal narrative using structural analysis from git history.
 pub fn blame(
     clause_id: &ClauseId,
     specs: &SpecGraph,
     results: &RunResult,
-    _generator: &dyn Generator,
 ) -> anyhow::Result<BlameResult> {
     // 1. Find the clause in the test results.
     let test_result = results

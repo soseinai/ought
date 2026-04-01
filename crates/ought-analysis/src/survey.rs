@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use ought_gen::Generator;
 use ought_spec::{Keyword, Section, SpecGraph};
 
 use crate::types::{SurveyResult, UncoveredBehavior};
@@ -10,12 +9,9 @@ use crate::types::{SurveyResult, UncoveredBehavior};
 ///
 /// Reads source files, reads all specs, and compares public function/method
 /// signatures against existing clause texts to find uncovered behaviors.
-/// The LLM generator parameter is accepted for future enrichment but
-/// structural analysis works without it.
 pub fn survey(
     specs: &SpecGraph,
     paths: &[PathBuf],
-    _generator: &dyn Generator,
 ) -> anyhow::Result<SurveyResult> {
     // 1. Collect all existing clause texts (lowercased) so we can check coverage.
     let mut covered_texts: HashSet<String> = HashSet::new();
