@@ -1,16 +1,26 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use axum::{
     Router,
+    extract::Query,
     response::{IntoResponse, Json},
     routing::get,
 };
 use rust_embed::Embed;
+use serde::Deserialize;
 
 use ought_spec::{Config, SpecGraph};
 
 use crate::api::build_api_response;
+use crate::search::SearchIndex;
+
+#[derive(Deserialize)]
+struct SearchParams {
+    q: Option<String>,
+    limit: Option<usize>,
+}
 
 #[derive(Embed)]
 #[folder = "dist/"]
@@ -75,14 +85,32 @@ pub async fn serve(config_path: Option<&Path>, port: u16, open_browser: bool) ->
     })?;
 
     let api_json = build_api_response(graph.specs());
+    let index = Arc::new(SearchIndex::build(graph.specs()));
+
+    eprintln!(
+        "Search index built: {} clauses indexed",
+        index.clause_count()
+    );
 
     let json_data = api_json.clone();
+    let search_index = index.clone();
     let app = Router::new()
         .route(
             "/api/specs",
             get(move || {
                 let data = json_data.clone();
                 async move { Json(data) }
+            }),
+        )
+        .route(
+            "/api/search",
+            get(move |params: Query<SearchParams>| {
+                let idx = search_index.clone();
+                async move {
+                    let limit = params.limit.unwrap_or(20).min(100);
+                    let query = params.q.as_deref().unwrap_or("");
+                    Json(idx.search(query, limit))
+                }
             }),
         )
         .fallback(static_handler);

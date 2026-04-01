@@ -4,7 +4,7 @@
   import ClauseRow from "./ClauseRow.svelte";
   import SectionCard from "./SectionCard.svelte";
   import type { Section } from "$lib/types.js";
-  import { searchQuery, activeFilter, filterClauses } from "$lib/stores.js";
+  import { activeFilter, filterClauses } from "$lib/stores.js";
 
   interface Props {
     section: Section;
@@ -16,7 +16,7 @@
   let open = $state(true);
 
   let filteredClauses = $derived(
-    filterClauses(section.clauses, $searchQuery, $activeFilter)
+    filterClauses(section.clauses, $activeFilter)
   );
 
   function toggleOpen() {

@@ -844,6 +844,7 @@ dependencies = [
  "mime_guess",
  "ought-spec",
  "rust-embed",
+ "serde",
  "serde_json",
  "tokio",
 ]

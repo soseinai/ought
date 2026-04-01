@@ -2,7 +2,8 @@
   import { Input } from "$lib/components/ui/input/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
   import Search from "lucide-svelte/icons/search";
-  import { data, searchQuery, activeFilter } from "$lib/stores.js";
+  import Loader from "lucide-svelte/icons/loader";
+  import { data, searchQuery, activeFilter, triggerSearch, isSearching } from "$lib/stores.js";
   import { KW_LABELS, KW_ORDER } from "$lib/types.js";
 
   const colorClass: Record<string, string> = {
@@ -31,16 +32,27 @@
       activeFilter.set(kw);
     }
   }
+
+  function onInput(e: Event) {
+    const value = (e.target as HTMLInputElement).value;
+    searchQuery.set(value);
+    triggerSearch(value);
+  }
 </script>
 
 <div
   class="px-5 py-2.5 bg-[var(--card)] border-b flex gap-2 items-center flex-wrap"
 >
-  <Search class="h-4 w-4 text-[var(--muted-foreground)] shrink-0" />
+  {#if $isSearching}
+    <Loader class="h-4 w-4 text-[var(--muted-foreground)] shrink-0 animate-spin" />
+  {:else}
+    <Search class="h-4 w-4 text-[var(--muted-foreground)] shrink-0" />
+  {/if}
   <Input
-    placeholder="Search clauses..."
+    placeholder="Search all clauses..."
     class="flex-1 min-w-[200px] h-8 text-sm"
-    bind:value={$searchQuery}
+    value={$searchQuery}
+    oninput={onInput}
   />
   <div class="flex gap-1 flex-wrap">
     {#each keywords as kw (kw)}

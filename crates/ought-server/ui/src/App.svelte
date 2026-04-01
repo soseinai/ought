@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { data, activeSpecIndex, loadData } from "$lib/stores.js";
+  import { data, activeSpecIndex, loadData, searchResults, searchQuery } from "$lib/stores.js";
   import Sidebar from "$lib/components/Sidebar.svelte";
   import SpecView from "$lib/components/SpecView.svelte";
   import SearchBar from "$lib/components/SearchBar.svelte";
+  import SearchResults from "$lib/components/SearchResults.svelte";
   import ThemeToggle from "$lib/components/ThemeToggle.svelte";
   import { Separator } from "$lib/components/ui/separator/index.js";
 
@@ -36,7 +37,9 @@
     <Sidebar />
     <Separator orientation="vertical" />
     <main class="flex-1 overflow-y-auto p-8">
-      {#if $data}
+      {#if $searchQuery && $searchResults !== null}
+        <SearchResults />
+      {:else if $data}
         <SpecView />
       {:else}
         <p class="text-[var(--muted-foreground)] p-10">Loading specs...</p>
