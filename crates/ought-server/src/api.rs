@@ -4,9 +4,11 @@ use serde_json::{Value, json};
 
 use ought_spec::{Clause, Keyword, Section, Spec};
 
+use crate::proofs::{Proof, ProofIndex};
+
 // ─── JSON serialization ────────────────────────────────────────────────────
 
-pub(crate) fn spec_to_json(spec: &Spec) -> Value {
+pub(crate) fn spec_to_json(spec: &Spec, proofs: &ProofIndex) -> Value {
     json!({
         "name": spec.name,
         "source_path": spec.source_path.display().to_string(),
@@ -20,25 +22,36 @@ pub(crate) fn spec_to_json(spec: &Spec) -> Value {
                 "anchor": r.anchor,
             })).collect::<Vec<_>>(),
         },
-        "sections": spec.sections.iter().map(section_to_json).collect::<Vec<_>>(),
+        "sections": spec.sections.iter().map(|s| section_to_json(s, proofs)).collect::<Vec<_>>(),
     })
 }
 
-pub(crate) fn section_to_json(section: &Section) -> Value {
+pub(crate) fn section_to_json(section: &Section, proofs: &ProofIndex) -> Value {
     json!({
         "title": section.title,
         "depth": section.depth,
         "prose": section.prose,
-        "clauses": section.clauses.iter().map(clause_to_json).collect::<Vec<_>>(),
-        "subsections": section.subsections.iter().map(section_to_json).collect::<Vec<_>>(),
+        "clauses": section.clauses.iter().map(|c| clause_to_json(c, proofs)).collect::<Vec<_>>(),
+        "subsections": section.subsections.iter().map(|s| section_to_json(s, proofs)).collect::<Vec<_>>(),
     })
 }
 
-pub(crate) fn clause_to_json(clause: &Clause) -> Value {
+pub(crate) fn clause_to_json(clause: &Clause, proofs: &ProofIndex) -> Value {
     let temporal = clause.temporal.as_ref().map(|t| match t {
         ought_spec::Temporal::Invariant => json!({ "kind": "invariant" }),
         ought_spec::Temporal::Deadline(dur) => json!({ "kind": "deadline", "duration": format!("{:?}", dur) }),
     });
+
+    let proofs_json = proofs
+        .by_clause
+        .get(&clause.id.0)
+        .map(|(path, tests)| {
+            json!({
+                "file": path.display().to_string(),
+                "tests": tests.iter().map(proof_to_json).collect::<Vec<_>>(),
+            })
+        })
+        .unwrap_or_else(|| json!({ "file": null, "tests": [] }));
 
     json!({
         "id": clause.id.0,
@@ -46,9 +59,19 @@ pub(crate) fn clause_to_json(clause: &Clause) -> Value {
         "severity": format!("{:?}", clause.severity),
         "text": clause.text,
         "condition": clause.condition,
-        "otherwise": clause.otherwise.iter().map(clause_to_json).collect::<Vec<_>>(),
+        "otherwise": clause.otherwise.iter().map(|c| clause_to_json(c, proofs)).collect::<Vec<_>>(),
         "temporal": temporal,
         "hints": clause.hints,
+        "proofs": proofs_json,
+    })
+}
+
+fn proof_to_json(proof: &Proof) -> Value {
+    json!({
+        "name": proof.name,
+        "summary": proof.summary,
+        "code": proof.code,
+        "language": proof.language,
     })
 }
 
@@ -97,7 +120,7 @@ pub(crate) fn count_by_keyword(sections: &[Section], counts: &mut HashMap<&'stat
     }
 }
 
-pub(crate) fn build_api_response(specs: &[Spec]) -> Value {
+pub(crate) fn build_api_response(specs: &[Spec], proofs: &ProofIndex) -> Value {
     let total_specs = specs.len();
     let total_sections: usize = specs.iter().map(|s| count_sections(&s.sections)).sum();
     let total_clauses: usize = specs.iter().map(|s| count_clauses(&s.sections)).sum();
@@ -108,12 +131,14 @@ pub(crate) fn build_api_response(specs: &[Spec]) -> Value {
     }
 
     json!({
-        "specs": specs.iter().map(spec_to_json).collect::<Vec<_>>(),
+        "specs": specs.iter().map(|s| spec_to_json(s, proofs)).collect::<Vec<_>>(),
         "stats": {
             "total_specs": total_specs,
             "total_sections": total_sections,
             "total_clauses": total_clauses,
             "by_keyword": by_keyword,
+            "total_proofs": proofs.proof_count(),
+            "clauses_with_proofs": proofs.clause_count(),
         },
     })
 }

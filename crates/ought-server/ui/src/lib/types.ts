@@ -18,6 +18,18 @@ export interface Section {
   subsections: Section[];
 }
 
+export interface Proof {
+  name: string;
+  summary: string;
+  code: string;
+  language: string;
+}
+
+export interface ClauseProofs {
+  file: string | null;
+  tests: Proof[];
+}
+
 export interface Clause {
   id: string;
   keyword: string;
@@ -27,6 +39,7 @@ export interface Clause {
   otherwise: Clause[];
   temporal: { kind: string; duration?: string } | null;
   hints: string[];
+  proofs: ClauseProofs;
 }
 
 export interface ApiResponse {

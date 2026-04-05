@@ -14,6 +14,7 @@ use serde::Deserialize;
 use ought_spec::{Config, SpecGraph};
 
 use crate::api::build_api_response;
+use crate::proofs::ProofIndex;
 use crate::search::SearchIndex;
 
 #[derive(Deserialize)]
@@ -84,7 +85,14 @@ pub async fn serve(config_path: Option<&Path>, port: u16, open_browser: bool) ->
         anyhow::anyhow!("spec parse errors:\n  {}", messages.join("\n  "))
     })?;
 
-    let api_json = build_api_response(graph.specs());
+    let proof_index = ProofIndex::build(&config, &config_dir);
+    eprintln!(
+        "Proof index built: {} proofs across {} clauses",
+        proof_index.proof_count(),
+        proof_index.clause_count()
+    );
+
+    let api_json = build_api_response(graph.specs(), &proof_index);
     let index = Arc::new(SearchIndex::build(graph.specs()));
 
     eprintln!(
