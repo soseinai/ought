@@ -15,7 +15,9 @@ name: Release
 #
 # Each release results in TWO workflow runs in the Actions tab — one
 # (workflow_dispatch) for the bump+tag, and one (push) for everything else.
-# This is normal.
+# The run-name below labels them "1/2" and "2/2" so the sequence is obvious.
+
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Release v{0} · 1/2 (bump + tag)', inputs.version) || format('Release {0} · 2/2 (build + ship)', github.ref_name) }}
 
 on:
   workflow_dispatch:
