@@ -74,13 +74,10 @@ lint: lint-ui lint-rust
 [group: 'all']
 ci: test lint
 
-# Publish all workspace crates to crates.io (cargo handles dep ordering).
-# --allow-dirty is required because ought-server's dist/ is gitignored (UI
-# build artifacts) but explicitly included in the published .crate via the
-# [package] include in ought-server/Cargo.toml.
+# Publish all workspace crates to crates.io (extra args forwarded to cargo)
 [group: 'all']
-publish-crates: build-ui
-    cargo publish --workspace --allow-dirty
+publish-crates *args: build-ui
+    cargo publish --workspace --allow-dirty {{args}}
 
 # Remove all build artifacts
 [group: 'all']
