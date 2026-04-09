@@ -218,29 +218,90 @@ jobs:
           ref: main
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Compute tag info
-        id: info
+      - name: Download prebuilt binaries and compute SHAs
+        id: shas
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          URL="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.tar.gz"
-          # GitHub auto-generates a source tarball for every tag, but it can
-          # take a few seconds to become available after the tag is pushed.
-          for i in 1 2 3 4 5; do
-            if curl -fsSL -o /tmp/source.tar.gz "$URL"; then
-              break
-            fi
-            echo "tarball not yet available, retrying..."
-            sleep 5
-          done
-          SHA=$(sha256sum /tmp/source.tar.gz | awk '{print $1}')
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          VERSION="${TAG#v}"
+          BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
 
-      - name: Update Homebrew formula
+          # Download each prebuilt binary tarball with retries (release assets
+          # can take a moment to become downloadable after the release job
+          # finishes), then compute its sha256.
+          download_sha() {
+            local target=$1
+            local url="${BASE}/ought-${target}.tar.gz"
+            for i in 1 2 3 4 5; do
+              if curl -fsSL -o "/tmp/${target}.tar.gz" "$url"; then
+                sha256sum "/tmp/${target}.tar.gz" | awk '{print $1}'
+                return 0
+              fi
+              echo "asset not yet available, retrying..." >&2
+              sleep 5
+            done
+            echo "ERROR: failed to download ${url}" >&2
+            return 1
+          }
+
+          SHA_ARM_MACOS=$(download_sha aarch64-apple-darwin)
+          SHA_INTEL_MACOS=$(download_sha x86_64-apple-darwin)
+          SHA_ARM_LINUX=$(download_sha aarch64-unknown-linux-gnu)
+          SHA_INTEL_LINUX=$(download_sha x86_64-unknown-linux-gnu)
+
+          {
+            echo "tag=${TAG}"
+            echo "version=${VERSION}"
+            echo "base=${BASE}"
+            echo "sha_arm_macos=${SHA_ARM_MACOS}"
+            echo "sha_intel_macos=${SHA_INTEL_MACOS}"
+            echo "sha_arm_linux=${SHA_ARM_LINUX}"
+            echo "sha_intel_linux=${SHA_INTEL_LINUX}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate Homebrew formula
         run: |
-          sed -i "s|^  url \".*\"|  url \"${{ steps.info.outputs.url }}\"|" Formula/ought.rb
-          sed -i "s|^  sha256 \".*\"|  sha256 \"${{ steps.info.outputs.sha }}\"|" Formula/ought.rb
+          # The formula is generated fresh from a template each release rather
+          # than sed-patching individual lines. This makes the format-of-record
+          # for the formula live in this workflow file (search for `class Ought`
+          # below to find/edit the template).
+          cat > Formula/ought.rb <<EOF
+          class Ought < Formula
+            desc "Behavioral test framework powered by LLMs"
+            homepage "https://sosein.ai/products/ought"
+            version "${{ steps.shas.outputs.version }}"
+            license any_of: ["MIT", "Apache-2.0"]
+
+            on_macos do
+              on_arm do
+                url "${{ steps.shas.outputs.base }}/ought-aarch64-apple-darwin.tar.gz"
+                sha256 "${{ steps.shas.outputs.sha_arm_macos }}"
+              end
+              on_intel do
+                url "${{ steps.shas.outputs.base }}/ought-x86_64-apple-darwin.tar.gz"
+                sha256 "${{ steps.shas.outputs.sha_intel_macos }}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "${{ steps.shas.outputs.base }}/ought-aarch64-unknown-linux-gnu.tar.gz"
+                sha256 "${{ steps.shas.outputs.sha_arm_linux }}"
+              end
+              on_intel do
+                url "${{ steps.shas.outputs.base }}/ought-x86_64-unknown-linux-gnu.tar.gz"
+                sha256 "${{ steps.shas.outputs.sha_intel_linux }}"
+              end
+            end
+
+            def install
+              bin.install "ought"
+            end
+
+            test do
+              assert_match "ought", shell_output("#{bin}/ought --version")
+            end
+          end
+          EOF
 
       - name: Commit and push
         run: |
@@ -248,8 +309,8 @@ jobs:
           git config user.email "3199403+sosein-release-bot[bot]@users.noreply.github.com"
           git add Formula/ought.rb
           if git diff --cached --quiet; then
-            echo "Formula already up to date for ${{ steps.info.outputs.tag }}"
+            echo "Formula already up to date for ${{ steps.shas.outputs.tag }}"
             exit 0
           fi
-          git commit -m "Bump Homebrew formula to ${{ steps.info.outputs.tag }} [skip ci]"
+          git commit -m "Bump Homebrew formula to ${{ steps.shas.outputs.tag }} [skip ci]"
           git push origin main
