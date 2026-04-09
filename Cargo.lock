@@ -753,7 +753,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "ought"
-version = "0.2.0-rc2"
+version = "0.2.0-rc3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -771,7 +771,7 @@ dependencies = [
 
 [[package]]
 name = "ought-analysis"
-version = "0.2.0-rc2"
+version = "0.2.0-rc3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -784,7 +784,7 @@ dependencies = [
 
 [[package]]
 name = "ought-gen"
-version = "0.2.0-rc2"
+version = "0.2.0-rc3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -798,7 +798,7 @@ dependencies = [
 
 [[package]]
 name = "ought-mcp"
-version = "0.2.0-rc2"
+version = "0.2.0-rc3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -813,7 +813,7 @@ dependencies = [
 
 [[package]]
 name = "ought-report"
-version = "0.2.0-rc2"
+version = "0.2.0-rc3"
 dependencies = [
  "anyhow",
  "ought-gen",
@@ -825,7 +825,7 @@ dependencies = [
 
 [[package]]
 name = "ought-run"
-version = "0.2.0-rc2"
+version = "0.2.0-rc3"
 dependencies = [
  "anyhow",
  "ought-gen",
@@ -837,7 +837,7 @@ dependencies = [
 
 [[package]]
 name = "ought-server"
-version = "0.2.0-rc2"
+version = "0.2.0-rc3"
 dependencies = [
  "anyhow",
  "axum",
@@ -851,7 +851,7 @@ dependencies = [
 
 [[package]]
 name = "ought-spec"
-version = "0.2.0-rc2"
+version = "0.2.0-rc3"
 dependencies = [
  "anyhow",
  "pulldown-cmark",

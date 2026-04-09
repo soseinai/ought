@@ -12,7 +12,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0-rc2"
+version = "0.2.0-rc3"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/soseinai/ought"
@@ -21,13 +21,13 @@ keywords = ["testing", "specs", "llm", "behavioral", "deontic"]
 categories = ["development-tools::testing"]
 
 [workspace.dependencies]
-ought-spec = { path = "crates/ought-spec", version = "0.2.0-rc2" }
-ought-gen = { path = "crates/ought-gen", version = "0.2.0-rc2" }
-ought-run = { path = "crates/ought-run", version = "0.2.0-rc2" }
-ought-report = { path = "crates/ought-report", version = "0.2.0-rc2" }
-ought-analysis = { path = "crates/ought-analysis", version = "0.2.0-rc2" }
-ought-mcp = { path = "crates/ought-mcp", version = "0.2.0-rc2" }
-ought-server = { path = "crates/ought-server", version = "0.2.0-rc2" }
+ought-spec = { path = "crates/ought-spec", version = "0.2.0-rc3" }
+ought-gen = { path = "crates/ought-gen", version = "0.2.0-rc3" }
+ought-run = { path = "crates/ought-run", version = "0.2.0-rc3" }
+ought-report = { path = "crates/ought-report", version = "0.2.0-rc3" }
+ought-analysis = { path = "crates/ought-analysis", version = "0.2.0-rc3" }
+ought-mcp = { path = "crates/ought-mcp", version = "0.2.0-rc3" }
+ought-server = { path = "crates/ought-server", version = "0.2.0-rc3" }
 
 anyhow = "1"
 thiserror = "2"
