@@ -127,7 +127,7 @@ Output:
 
 ## Spec Format
 
-Spec files are standard CommonMark markdown with the `.ought.md` extension. They render in GitHub, display in any editor, and require no special tooling to read.
+Spec files are standard CommonMark markdown with the `.ought.md` extension. They render in GitHub, display in any editor, and require no special tooling to read. The formal grammar is defined in [docs/grammar.md](docs/grammar.md) — that file is the source of truth for what the parser accepts.
 
 **Structure:**
 
