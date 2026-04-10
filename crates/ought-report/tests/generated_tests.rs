@@ -41,6 +41,7 @@ fn make_clause(keyword: Keyword, text: &str, id: &str) -> Clause {
             line: 1,
         },
         content_hash: "test".to_string(),
+        pending: false,
     }
 }
 

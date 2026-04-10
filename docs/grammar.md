@@ -99,9 +99,11 @@ language        = identifier ;
 
 bold_keyword    = "**" , keyword , "**" ;
 bold_given      = "**" , "GIVEN" , "**" ;
-bold_otherwise  = "**" , "OTHERWISE" , "**" ;
+bold_otherwise  = "**" , [ pending , whitespace ] , "OTHERWISE" , "**" ;
 
-keyword         = obligation | permission | negative ;
+keyword         = [ pending , whitespace ] , ( obligation | permission | negative ) ;
+
+pending         = "PENDING" ;
 
 obligation      = "MUST"
                 | "MUST NOT"
@@ -177,6 +179,27 @@ These constraints are not expressible in EBNF but are enforced by the parser:
 8. **One H1 per file.** The first H1 defines the spec name. Subsequent H1s
    are ignored for naming but parsed normally.
 
+9. **PENDING modifies any clause-producing keyword.** `PENDING` is an optional
+   prefix that may precede any keyword that produces a clause: MUST, MUST NOT,
+   SHOULD, SHOULD NOT, MAY, WONT, MUST ALWAYS, MUST BY, and OTHERWISE. It
+   cannot stand alone (a strength is always required) and cannot modify
+   GIVEN — GIVEN is a grouping construct that never becomes a clause, so
+   there is no test to defer. A pending clause declares intent but signals
+   that the implementation is deferred: the generator must not emit a test
+   for it, and the runner must report it as `pending` (not pass, fail, or
+   skip). To promote a pending clause, delete the `PENDING ` prefix.
+
+   **Pending propagation.** A clause's `PENDING` flag propagates only to its
+   `OTHERWISE` fallback chain — the fallback for a deferred obligation is
+   itself deferred. An OTHERWISE child is pending if *either* its parent is
+   pending *or* it was written as `**PENDING OTHERWISE**` explicitly (so an
+   explicit pending fallback under a non-pending parent is allowed and
+   useful: the happy path ships, the fallback is still being built).
+   PENDING does **not** propagate to other nested clauses: a nested clause
+   is its own obligation and must be marked `PENDING` independently if the
+   author wants it deferred. This keeps each clause's strength explicit at
+   its declaration site.
+
 ## Example
 
 ```markdown
@@ -198,6 +221,7 @@ Handles credential validation and token issuance.
 - **SHOULD** rate-limit to 5 attempts per minute per IP
 - **MAY** support "remember me" extended token expiry
 - **WONT** support basic auth
+- **PENDING MUST** support WebAuthn passkeys as an alternative to passwords
 
 ## Session Management
 

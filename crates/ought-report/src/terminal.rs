@@ -16,6 +16,7 @@ const DIM: &str = "\x1b[2m";
 const RED: &str = "\x1b[31m";
 const GREEN: &str = "\x1b[32m";
 const YELLOW: &str = "\x1b[33m";
+const CYAN: &str = "\x1b[36m";
 const GRAY: &str = "\x1b[90m";
 
 /// Whether to emit ANSI color codes.
@@ -59,6 +60,10 @@ impl Painter {
 
     fn yellow(&self, text: &str) -> String {
         self.style(YELLOW, text)
+    }
+
+    fn cyan(&self, text: &str) -> String {
+        self.style(CYAN, text)
     }
 
     fn dim(&self, text: &str) -> String {
@@ -158,6 +163,7 @@ pub fn report_to_writer(
     let mut total_failed = 0usize;
     let mut total_errored = 0usize;
     let mut total_skipped = 0usize;
+    let mut total_pending = 0usize;
     let mut confirmed_absent = 0usize;
     let mut must_total = 0usize;
     let mut must_passed = 0usize;
@@ -194,6 +200,7 @@ pub fn report_to_writer(
                 &mut total_failed,
                 &mut total_errored,
                 &mut total_skipped,
+                &mut total_pending,
                 &mut confirmed_absent,
                 &mut must_total,
                 &mut must_passed,
@@ -219,6 +226,9 @@ pub fn report_to_writer(
     }
     if total_skipped > 0 {
         summary_parts.push(p.dim(&format!("{} skipped", total_skipped)));
+    }
+    if total_pending > 0 {
+        summary_parts.push(p.cyan(&format!("{} pending", total_pending)));
     }
 
     writeln!(out, " {}", summary_parts.join(" \u{00b7} "))?;
@@ -254,6 +264,7 @@ fn render_section(
     total_failed: &mut usize,
     total_errored: &mut usize,
     total_skipped: &mut usize,
+    total_pending: &mut usize,
     confirmed_absent: &mut usize,
     must_total: &mut usize,
     must_passed: &mut usize,
@@ -276,6 +287,7 @@ fn render_section(
             total_failed,
             total_errored,
             total_skipped,
+            total_pending,
             confirmed_absent,
             must_total,
             must_passed,
@@ -294,6 +306,7 @@ fn render_section(
             total_failed,
             total_errored,
             total_skipped,
+            total_pending,
             confirmed_absent,
             must_total,
             must_passed,
@@ -315,11 +328,48 @@ fn render_clause(
     total_failed: &mut usize,
     total_errored: &mut usize,
     total_skipped: &mut usize,
+    total_pending: &mut usize,
     confirmed_absent: &mut usize,
     must_total: &mut usize,
     must_passed: &mut usize,
 ) -> anyhow::Result<()> {
     let indent = "  ".repeat(depth);
+
+    // PENDING clauses: render with a distinct indicator and skip test-result
+    // lookup entirely. They do NOT contribute to MUST coverage — the author
+    // has explicitly deferred them. An OTHERWISE chain under a pending parent
+    // inherits pending, so we recurse into the chain the same way.
+    if clause.pending {
+        *total_pending += 1;
+        let kw = keyword_str(clause.keyword);
+        let keyword_padded = format!("{:<6}", kw);
+        let prefix = if is_otherwise { "\u{21b3} " } else { "" };
+        let line = format!(
+            "{}\u{25ef} {} {}  (pending)",
+            prefix, keyword_padded, &clause.text
+        );
+        writeln!(out, "{}{}", indent, p.cyan(&line))?;
+
+        for otherwise_clause in &clause.otherwise {
+            render_clause(
+                out,
+                p,
+                otherwise_clause,
+                result_map,
+                depth + 1,
+                true,
+                total_passed,
+                total_failed,
+                total_errored,
+                total_skipped,
+                total_pending,
+                confirmed_absent,
+                must_total,
+                must_passed,
+            )?;
+        }
+        return Ok(());
+    }
 
     // Handle GIVEN blocks: render as a group header
     if clause.keyword == Keyword::Given {
@@ -350,6 +400,7 @@ fn render_clause(
                 total_failed,
                 total_errored,
                 total_skipped,
+                total_pending,
                 confirmed_absent,
                 must_total,
                 must_passed,
@@ -507,6 +558,7 @@ fn render_clause(
             total_failed,
             total_errored,
             total_skipped,
+            total_pending,
             confirmed_absent,
             must_total,
             must_passed,

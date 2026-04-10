@@ -41,6 +41,11 @@ build-rust profile="debug":
 test-rust: build-ui
     cargo test
 
+# Forward extra args to `cargo run` (UI must be built first so rust-embed can find dist/)
+[group: 'rust']
+run *args: build-ui
+    cargo run {{args}}
+
 # Lint the Rust workspace
 [group: 'rust']
 lint-rust: build-ui

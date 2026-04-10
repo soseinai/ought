@@ -95,14 +95,6 @@ struct RunArgs {
     /// Spec file or glob pattern to run (default: all specs).
     path: Option<String>,
 
-    /// Enable LLM-powered failure diagnosis.
-    #[arg(long)]
-    diagnose: bool,
-
-    /// Enable LLM-powered test quality grading.
-    #[arg(long)]
-    grade: bool,
-
     /// Exit with code 1 on SHOULD failures too.
     #[arg(long)]
     fail_on_should: bool,
@@ -400,6 +392,9 @@ fn build_agent_assignments(
         let stale_clauses: Vec<&ought_spec::Clause> = group
             .testable_clauses
             .iter()
+            // PENDING clauses are never scheduled for generation, even with
+            // --force: the author has explicitly deferred them.
+            .filter(|c| !c.pending)
             .filter(|c| {
                 if force {
                     true
@@ -633,8 +628,6 @@ fn cmd_run(cli: &Cli, args: &RunArgs) -> anyhow::Result<()> {
 
     // Report
     let report_opts = ReportOptions {
-        diagnose: args.diagnose,
-        grade: args.grade,
         quiet: cli.quiet,
         color: cli.color.to_report_color(),
     };
@@ -750,9 +743,13 @@ fn cmd_generate(cli: &Cli, args: &GenerateArgs) -> anyhow::Result<()> {
     let mut stale_count = 0;
 
     if args.check {
-        // In check mode, just count stale clauses.
+        // In check mode, just count stale clauses. Pending clauses are never
+        // stale — they're intentionally deferred.
         for group in &groups {
             for clause in &group.testable_clauses {
+                if clause.pending {
+                    continue;
+                }
                 if args.force || manifest.is_stale(&clause.id, &clause.content_hash, "") {
                     eprintln!("  stale: {}", clause.id);
                     stale_count += 1;
@@ -826,11 +823,25 @@ fn cmd_check(cli: &Cli) -> anyhow::Result<()> {
                 .iter()
                 .map(|s| count_clauses_in_sections(&s.sections))
                 .sum();
-            eprintln!(
-                "All specs valid: {} files, {} clauses",
-                specs.specs().len(),
-                clause_count
-            );
+            let pending_count: usize = specs
+                .specs()
+                .iter()
+                .map(|s| count_pending_in_sections(&s.sections))
+                .sum();
+            if pending_count > 0 {
+                eprintln!(
+                    "All specs valid: {} files, {} clauses ({} pending)",
+                    specs.specs().len(),
+                    clause_count,
+                    pending_count
+                );
+            } else {
+                eprintln!(
+                    "All specs valid: {} files, {} clauses",
+                    specs.specs().len(),
+                    clause_count
+                );
+            }
             Ok(())
         }
         Err(e) => {
@@ -844,6 +855,16 @@ fn count_clauses_in_sections(sections: &[ought_spec::Section]) -> usize {
     sections
         .iter()
         .map(|s| s.clauses.len() + count_clauses_in_sections(&s.subsections))
+        .sum()
+}
+
+fn count_pending_in_sections(sections: &[ought_spec::Section]) -> usize {
+    sections
+        .iter()
+        .map(|s| {
+            s.clauses.iter().filter(|c| c.pending).count()
+                + count_pending_in_sections(&s.subsections)
+        })
         .sum()
 }
 
@@ -1118,6 +1139,11 @@ fn cmd_diff(cli: &Cli) -> anyhow::Result<()> {
                     if clause.keyword == ought_spec::Keyword::Given {
                         continue;
                     }
+                    // Pending clauses are never "stale" — they're explicitly
+                    // deferred, and `ought generate` does not schedule them.
+                    if clause.pending {
+                        continue;
+                    }
                     *total += 1;
                     if manifest.is_stale(&clause.id, &clause.content_hash, "") {
                         let reason = match manifest.entries.get(&clause.id.0) {
@@ -1266,8 +1292,6 @@ fn cmd_watch(cli: &Cli) -> anyhow::Result<()> {
         };
 
         let report_opts = ReportOptions {
-            diagnose: false,
-            grade: false,
             quiet: cli.quiet,
             color: cli.color.to_report_color(),
         };

@@ -36,10 +36,16 @@ fn xml_escape(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-/// Collect clause info (id, keyword, text) from a clause and its otherwise chain.
-fn collect_clauses(clauses: &[Clause], out: &mut Vec<(String, Keyword, String)>) {
+/// Collect clause info `(id, keyword, text, pending)` from a clause and its
+/// otherwise chain.
+fn collect_clauses(clauses: &[Clause], out: &mut Vec<(String, Keyword, String, bool)>) {
     for clause in clauses {
-        out.push((clause.id.0.clone(), clause.keyword, clause.text.clone()));
+        out.push((
+            clause.id.0.clone(),
+            clause.keyword,
+            clause.text.clone(),
+            clause.pending,
+        ));
         if !clause.otherwise.is_empty() {
             collect_clauses(&clause.otherwise, out);
         }
@@ -48,7 +54,7 @@ fn collect_clauses(clauses: &[Clause], out: &mut Vec<(String, Keyword, String)>)
 
 fn collect_clauses_from_section(
     section: &ought_spec::Section,
-    out: &mut Vec<(String, Keyword, String)>,
+    out: &mut Vec<(String, Keyword, String, bool)>,
 ) {
     collect_clauses(&section.clauses, out);
     for sub in &section.subsections {
@@ -76,14 +82,21 @@ pub fn report(results: &RunResult, specs: &[Spec], path: &Path) -> anyhow::Resul
             collect_clauses_from_section(section, &mut clause_infos);
         }
 
-        // Compute counts for this suite
+        // Compute counts for this suite. Pending clauses are emitted as
+        // `<skipped message="pending"/>` — the standard JUnit convention for
+        // deferred tests.
         let mut tests = 0usize;
         let mut failures = 0usize;
         let mut errors = 0usize;
         let mut skipped = 0usize;
         let mut suite_time = 0.0f64;
 
-        for (clause_id, _, _) in &clause_infos {
+        for (clause_id, _, _, pending) in &clause_infos {
+            if *pending {
+                tests += 1;
+                skipped += 1;
+                continue;
+            }
             if let Some(tr) = result_map.get(clause_id.as_str()) {
                 tests += 1;
                 suite_time += tr.duration.as_secs_f64();
@@ -106,7 +119,35 @@ pub fn report(results: &RunResult, specs: &[Spec], path: &Path) -> anyhow::Resul
             suite_time,
         ));
 
-        for (clause_id, keyword, text) in &clause_infos {
+        for (clause_id, keyword, text, pending) in &clause_infos {
+            if *pending {
+                let classname = xml_escape(&spec.name);
+                let name = xml_escape(&format!("{} {}", keyword_str(*keyword), text));
+                xml.push_str(&format!(
+                    "    <testcase classname=\"{}\" name=\"{}\" time=\"0.000\">\n",
+                    classname, name,
+                ));
+                xml.push_str("      <properties>\n");
+                xml.push_str(&format!(
+                    "        <property name=\"keyword\" value=\"{}\" />\n",
+                    xml_escape(keyword_str(*keyword)),
+                ));
+                xml.push_str(&format!(
+                    "        <property name=\"severity\" value=\"{}\" />\n",
+                    xml_escape(severity_str(*keyword)),
+                ));
+                xml.push_str(&format!(
+                    "        <property name=\"clause_id\" value=\"{}\" />\n",
+                    xml_escape(clause_id),
+                ));
+                xml.push_str(
+                    "        <property name=\"pending\" value=\"true\" />\n",
+                );
+                xml.push_str("      </properties>\n");
+                xml.push_str("      <skipped message=\"pending\" />\n");
+                xml.push_str("    </testcase>\n");
+                continue;
+            }
             if let Some(tr) = result_map.get(clause_id.as_str()) {
                 let classname = xml_escape(&spec.name);
                 let name = xml_escape(&format!("{} {}", keyword_str(*keyword), text));

@@ -52,6 +52,13 @@ fn collect_clauses_with_context(
     for section in sections {
         let section_path = format!("{} > {}", parent_path, section.title);
         for clause in &section.clauses {
+            // Pending clauses are declared-but-deferred. Audit checks
+            // (contradictions, deadline conflicts, missing OTHERWISE, etc.)
+            // are meaningless for work that hasn't been committed to yet, so
+            // we skip the whole subtree including its OTHERWISE chain.
+            if clause.pending {
+                continue;
+            }
             out.push(ClauseWithContext {
                 clause: clause.clone(),
                 section_path: section_path.clone(),

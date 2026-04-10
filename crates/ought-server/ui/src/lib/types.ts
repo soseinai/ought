@@ -40,6 +40,7 @@ export interface Clause {
   temporal: { kind: string; duration?: string } | null;
   hints: string[];
   proofs: ClauseProofs;
+  pending: boolean;
 }
 
 export interface ApiResponse {

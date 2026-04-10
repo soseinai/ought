@@ -14,8 +14,13 @@
 <div class="flex flex-col h-screen bg-[var(--background)] text-[var(--foreground)] font-sans text-sm">
   <!-- Header -->
   <header class="flex items-center gap-4 px-5 h-12 border-b shrink-0">
-    <h1 class="font-display text-sm font-bold tracking-widest uppercase">
-      OUGHT <span class="opacity-40 font-normal">/ VIEWER</span>
+    <h1 class="flex items-center gap-2 font-display text-sm font-bold tracking-widest uppercase">
+      <img
+        src="/ought-logo.svg"
+        alt="ought"
+        class="h-5 w-auto dark:invert"
+      />
+      <span class="opacity-40 font-normal">/ VIEWER</span>
     </h1>
     <div class="ml-auto flex items-center gap-3">
       {#if $data}

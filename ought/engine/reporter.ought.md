@@ -69,28 +69,34 @@ source: src/reporter/
 
 ## Failure Narratives (LLM-powered)
 
-- **MUST** support a `--diagnose` flag that enables LLM-powered failure diagnosis
-- **MUST** send the failing clause, generated test, failure output, and relevant source code to the LLM
-- **MUST** display the diagnosis in a distinct visual panel below the failure
-- **MUST** include a suggested fix (file, line, what to change) when the LLM can determine one
-- **MUST NOT** run diagnosis automatically without `--diagnose` (it costs API calls)
-- **SHOULD** diagnose all failures in a single batch LLM call when possible
-- **SHOULD** include the git diff since the last passing run in the diagnosis context
+Deferred: the Rust implementation was removed in favor of waiting for the
+agent/LLM integration to mature. Clauses remain as PENDING so the intent is
+preserved and `ought generate` does not try to emit tests for them.
+
+- **PENDING MUST** support a `--diagnose` flag that enables LLM-powered failure diagnosis
+- **PENDING MUST** send the failing clause, generated test, failure output, and relevant source code to the LLM
+- **PENDING MUST** display the diagnosis in a distinct visual panel below the failure
+- **PENDING MUST** include a suggested fix (file, line, what to change) when the LLM can determine one
+- **PENDING MUST NOT** run diagnosis automatically without `--diagnose` (it costs API calls)
+- **PENDING SHOULD** diagnose all failures in a single batch LLM call when possible
+- **PENDING SHOULD** include the git diff since the last passing run in the diagnosis context
 
 ## Test Quality Grading
 
-- **MUST** support a `--grade` flag that enables LLM-powered test quality assessment
-- **MUST** assign a letter grade (A-F) to each generated test based on how well it validates the clause
-- **MUST** display the grade alongside each clause in the output
-- **SHOULD** include a brief explanation for grades below B
-- **SHOULD** suggest improvements for low-graded tests
-- **MUST NOT** run grading automatically without `--grade`
+Deferred alongside failure diagnosis — see above.
+
+- **PENDING MUST** support a `--grade` flag that enables LLM-powered test quality assessment
+- **PENDING MUST** assign a letter grade (A-F) to each generated test based on how well it validates the clause
+- **PENDING MUST** display the grade alongside each clause in the output
+- **PENDING SHOULD** include a brief explanation for grades below B
+- **PENDING SHOULD** suggest improvements for low-graded tests
+- **PENDING MUST NOT** run grading automatically without `--grade`
 
 ## JSON Output
 
 - **MUST** support `--json` flag that outputs structured results as JSON to stdout
 - **MUST** include all fields: clause identifier, keyword, severity, status, failure message, duration
-- **MUST** include diagnosis and grade data when those flags are also active
+- **PENDING MUST** include diagnosis and grade data when those flags are also active
 - **MUST NOT** mix JSON output with human-readable output (one or the other)
 
 ## JUnit XML Output

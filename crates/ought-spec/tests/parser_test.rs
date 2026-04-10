@@ -315,3 +315,205 @@ It has multiple paragraphs.
     assert!(!section.prose.is_empty());
     assert!(section.prose.contains("architecture"));
 }
+
+// ── PENDING prefix ──────────────────────────────────────────────────────────
+
+#[test]
+fn test_pending_must() {
+    let md = r#"# Svc
+
+## Rules
+
+- **MUST** charge correct amount
+- **PENDING MUST** support passkeys
+"#;
+    let spec = parse(md);
+    let clauses = &spec.sections[0].clauses;
+    assert_eq!(clauses.len(), 2);
+    assert_eq!(clauses[0].keyword, Keyword::Must);
+    assert!(!clauses[0].pending, "non-pending clause should have pending=false");
+    assert_eq!(clauses[1].keyword, Keyword::Must);
+    assert!(clauses[1].pending, "PENDING MUST clause should have pending=true");
+    assert!(clauses[1].text.contains("passkeys"));
+    // Severity is preserved — PENDING doesn't change the eventual strength.
+    assert_eq!(clauses[1].severity, Severity::Required);
+}
+
+#[test]
+fn test_pending_on_all_obligations() {
+    let md = r#"# Svc
+
+## Rules
+
+- **PENDING MUST** a
+- **PENDING MUST NOT** b
+- **PENDING SHOULD** c
+- **PENDING SHOULD NOT** d
+- **PENDING MAY** e
+- **PENDING MUST ALWAYS** f
+- **PENDING MUST BY 100ms** g
+"#;
+    let spec = parse(md);
+    let clauses = &spec.sections[0].clauses;
+    assert_eq!(clauses.len(), 7);
+    let expected = [
+        Keyword::Must,
+        Keyword::MustNot,
+        Keyword::Should,
+        Keyword::ShouldNot,
+        Keyword::May,
+        Keyword::MustAlways,
+        Keyword::MustBy,
+    ];
+    for (i, exp) in expected.iter().enumerate() {
+        assert_eq!(clauses[i].keyword, *exp, "clause {} keyword", i);
+        assert!(clauses[i].pending, "clause {} must be pending", i);
+    }
+    // MUST BY duration is preserved through PENDING.
+    assert!(matches!(
+        clauses[6].temporal,
+        Some(Temporal::Deadline(d)) if d == Duration::from_millis(100)
+    ));
+}
+
+#[test]
+fn test_pending_case_insensitive() {
+    let md = r#"# Svc
+
+## Rules
+
+- **pending must** lower
+- **Pending Should** mixed
+"#;
+    let spec = parse(md);
+    let clauses = &spec.sections[0].clauses;
+    assert_eq!(clauses.len(), 2);
+    assert!(clauses[0].pending);
+    assert_eq!(clauses[0].keyword, Keyword::Must);
+    assert!(clauses[1].pending);
+    assert_eq!(clauses[1].keyword, Keyword::Should);
+}
+
+#[test]
+fn test_pending_promotes_hash_change() {
+    // Promoting PENDING MUST → MUST must change the content hash so the
+    // generator picks up the clause as stale.
+    let pending_md = "# Svc\n\n## Rules\n\n- **PENDING MUST** do a thing\n";
+    let promoted_md = "# Svc\n\n## Rules\n\n- **MUST** do a thing\n";
+    let pending = parse(pending_md);
+    let promoted = parse(promoted_md);
+    assert_ne!(
+        pending.sections[0].clauses[0].content_hash,
+        promoted.sections[0].clauses[0].content_hash,
+        "promoting PENDING should change the content hash"
+    );
+}
+
+#[test]
+fn test_pending_otherwise_inherits() {
+    // An OTHERWISE chain under a pending parent should also be marked pending.
+    let md = r#"# Svc
+
+## Rules
+
+- **PENDING MUST BY 200ms** return a response
+  - **OTHERWISE** return a cached copy
+"#;
+    let spec = parse(md);
+    let parent = &spec.sections[0].clauses[0];
+    assert!(parent.pending);
+    assert_eq!(parent.otherwise.len(), 1);
+    assert!(
+        parent.otherwise[0].pending,
+        "OTHERWISE under a pending parent should inherit pending=true"
+    );
+}
+
+#[test]
+fn test_pending_does_not_inherit_to_nested_obligations() {
+    // PENDING propagates to OTHERWISE only. A nested non-OTHERWISE clause is
+    // its own obligation: it must be marked PENDING explicitly to be deferred.
+    let md = r#"# Svc
+
+## Rules
+
+- **PENDING MUST** ship onboarding flow
+  - **MUST** validate email format
+  - **PENDING SHOULD** send welcome message
+"#;
+    let spec = parse(md);
+    let clauses = &spec.sections[0].clauses;
+    // Parent and both nested obligations are flattened as siblings.
+    assert_eq!(clauses.len(), 3);
+
+    let parent = clauses
+        .iter()
+        .find(|c| c.text.contains("onboarding"))
+        .expect("parent");
+    let child_must = clauses
+        .iter()
+        .find(|c| c.text.contains("validate email"))
+        .expect("child MUST");
+    let child_pending_should = clauses
+        .iter()
+        .find(|c| c.text.contains("welcome message"))
+        .expect("child PENDING SHOULD");
+
+    assert!(parent.pending, "parent is PENDING MUST");
+    assert!(
+        !child_must.pending,
+        "nested non-OTHERWISE child does not inherit pending from parent"
+    );
+    assert!(
+        child_pending_should.pending,
+        "nested child marked PENDING explicitly is pending"
+    );
+}
+
+#[test]
+fn test_bare_pending_errors() {
+    let md = "# Svc\n\n## Rules\n\n- **PENDING** no strength here\n";
+    let err = Parser::parse_string(md, Path::new("t.ought.md")).expect_err("should fail");
+    assert!(err.iter().any(|e| e.message.contains("PENDING must be followed")));
+}
+
+#[test]
+fn test_pending_wont() {
+    // PENDING WONT is allowed: the author has committed that this behavior
+    // will not be supported, but the confirmation test is deferred.
+    let md = "# Svc\n\n## Rules\n\n- **PENDING WONT** support basic auth\n";
+    let spec = parse(md);
+    let clause = &spec.sections[0].clauses[0];
+    assert_eq!(clause.keyword, Keyword::Wont);
+    assert!(clause.pending, "PENDING WONT should set pending=true");
+    assert_eq!(clause.severity, Severity::NegativeConfirmation);
+}
+
+#[test]
+fn test_pending_otherwise_explicit() {
+    // PENDING OTHERWISE on a non-pending parent: only the fallback is deferred.
+    let md = r#"# Svc
+
+## Rules
+
+- **MUST** return a response
+  - **PENDING OTHERWISE** return a cached copy
+"#;
+    let spec = parse(md);
+    let parent = &spec.sections[0].clauses[0];
+    assert!(!parent.pending, "parent is not pending");
+    assert_eq!(parent.otherwise.len(), 1);
+    assert!(
+        parent.otherwise[0].pending,
+        "explicit PENDING OTHERWISE should set pending=true on the fallback"
+    );
+}
+
+#[test]
+fn test_pending_given_errors() {
+    // GIVEN is the one keyword PENDING cannot modify: it's a grouping
+    // construct that never becomes a clause, so there's no test to defer.
+    let md = "# Svc\n\n## Rules\n\n- **PENDING GIVEN** the user is authed\n";
+    let err = Parser::parse_string(md, Path::new("t.ought.md")).expect_err("should fail");
+    assert!(err.iter().any(|e| e.message.contains("PENDING cannot modify GIVEN")));
+}

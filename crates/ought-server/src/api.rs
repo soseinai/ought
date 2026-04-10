@@ -63,6 +63,7 @@ pub(crate) fn clause_to_json(clause: &Clause, proofs: &ProofIndex) -> Value {
         "temporal": temporal,
         "hints": clause.hints,
         "proofs": proofs_json,
+        "pending": clause.pending,
     })
 }
 

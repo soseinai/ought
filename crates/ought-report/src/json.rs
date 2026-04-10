@@ -16,6 +16,9 @@ struct JsonClauseResult {
     iterations: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     measured_duration_ms: Option<f64>,
+    /// True when the clause is declared with a `PENDING` prefix.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pending: bool,
 }
 
 /// Top-level JSON report.
@@ -39,6 +42,7 @@ struct JsonSummary {
     failed: usize,
     errored: usize,
     skipped: usize,
+    pending: usize,
     must_total: usize,
     must_passed: usize,
     must_coverage_pct: f64,
@@ -78,9 +82,10 @@ fn status_str(status: ought_run::TestStatus) -> &'static str {
 }
 
 /// Collect all clause IDs from clauses and their otherwise chains.
-fn collect_clauses(clauses: &[Clause], out: &mut Vec<(String, Keyword)>) {
+/// Each entry carries `(id, keyword, pending)`.
+fn collect_clauses(clauses: &[Clause], out: &mut Vec<(String, Keyword, bool)>) {
     for clause in clauses {
-        out.push((clause.id.0.clone(), clause.keyword));
+        out.push((clause.id.0.clone(), clause.keyword, clause.pending));
         if !clause.otherwise.is_empty() {
             collect_clauses(&clause.otherwise, out);
         }
@@ -100,6 +105,7 @@ pub fn report(results: &RunResult, specs: &[Spec]) -> anyhow::Result<String> {
     let mut total_failed = 0usize;
     let mut total_errored = 0usize;
     let mut total_skipped = 0usize;
+    let mut total_pending = 0usize;
     let mut must_total = 0usize;
     let mut must_passed = 0usize;
 
@@ -113,7 +119,27 @@ pub fn report(results: &RunResult, specs: &[Spec]) -> anyhow::Result<String> {
 
         let mut json_results = Vec::new();
 
-        for (clause_id, keyword) in &clause_infos {
+        for (clause_id, keyword, pending) in &clause_infos {
+            // Pending clauses are reported with status "pending" regardless of
+            // whether a stray test result exists. They do NOT count toward the
+            // MUST coverage denominator — the author has explicitly deferred
+            // them, so measuring coverage against them would be misleading.
+            if *pending {
+                total_pending += 1;
+                json_results.push(JsonClauseResult {
+                    clause_id: clause_id.clone(),
+                    keyword: keyword_str(*keyword).to_string(),
+                    severity: severity_str(*keyword).to_string(),
+                    status: "pending".to_string(),
+                    message: None,
+                    duration_ms: 0.0,
+                    iterations: None,
+                    measured_duration_ms: None,
+                    pending: true,
+                });
+                continue;
+            }
+
             if let Some(tr) = result_map.get(clause_id.as_str()) {
                 let is_must = matches!(
                     keyword,
@@ -144,6 +170,7 @@ pub fn report(results: &RunResult, specs: &[Spec]) -> anyhow::Result<String> {
                     duration_ms: tr.duration.as_secs_f64() * 1000.0,
                     iterations: tr.details.iterations,
                     measured_duration_ms: tr.details.measured_duration.map(|d| d.as_secs_f64() * 1000.0),
+                    pending: false,
                 });
             }
         }
@@ -168,6 +195,7 @@ pub fn report(results: &RunResult, specs: &[Spec]) -> anyhow::Result<String> {
             failed: total_failed,
             errored: total_errored,
             skipped: total_skipped,
+            pending: total_pending,
             must_total,
             must_passed,
             must_coverage_pct,
@@ -179,7 +207,10 @@ pub fn report(results: &RunResult, specs: &[Spec]) -> anyhow::Result<String> {
     Ok(json)
 }
 
-fn collect_clauses_from_section(section: &ought_spec::Section, out: &mut Vec<(String, Keyword)>) {
+fn collect_clauses_from_section(
+    section: &ought_spec::Section,
+    out: &mut Vec<(String, Keyword, bool)>,
+) {
     collect_clauses(&section.clauses, out);
     for sub in &section.subsections {
         collect_clauses_from_section(sub, out);

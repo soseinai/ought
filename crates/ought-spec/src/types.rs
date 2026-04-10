@@ -52,6 +52,12 @@ pub struct Clause {
     pub hints: Vec<String>,
     pub source_location: SourceLocation,
     pub content_hash: String,
+    /// Clause is declared with a `PENDING` prefix: the author has committed to
+    /// the obligation strength but the implementation is deferred. The
+    /// generator must skip pending clauses and the runner reports them as
+    /// `pending` rather than passed/failed/skipped.
+    #[serde(default)]
+    pub pending: bool,
 }
 
 /// Stable identifier for a clause, derived from section path + clause text.

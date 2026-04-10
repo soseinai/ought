@@ -81,19 +81,103 @@ fn slugify(s: &str) -> String {
     result
 }
 
-/// Generate a content hash from keyword, text, and condition.
-fn content_hash(keyword: Keyword, text: &str, condition: &Option<String>) -> String {
+/// Generate a content hash from keyword, text, condition, and pending flag.
+///
+/// Pending is included in the hash so that promoting a clause from
+/// `PENDING MUST` to `MUST` registers as a content change and forces the
+/// generator to pick it up as stale.
+fn content_hash(
+    keyword: Keyword,
+    text: &str,
+    condition: &Option<String>,
+    pending: bool,
+) -> String {
     let mut hasher = DefaultHasher::new();
     format!("{:?}", keyword).hash(&mut hasher);
     text.hash(&mut hasher);
     condition.hash(&mut hasher);
+    pending.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
 }
 
-/// Try to parse a keyword from bold text. Returns (Keyword, Option<Duration>) for MUST BY.
-fn parse_keyword(bold_text: &str) -> Option<(Keyword, Option<Duration>)> {
-    let upper = bold_text.trim().to_uppercase();
-    match upper.as_str() {
+/// Result of parsing a bold text span as a keyword.
+enum ParsedKeyword {
+    /// A valid keyword, optionally with a PENDING prefix and/or a MUST BY duration.
+    Ok {
+        keyword: Keyword,
+        duration: Option<Duration>,
+        pending: bool,
+    },
+    /// Bold text that isn't a keyword at all — caller should treat it as prose.
+    NotAKeyword,
+    /// Malformed keyword (e.g. bare `PENDING`, `PENDING WONT`). The caller
+    /// should record the message as a parse error and skip the clause.
+    Invalid(String),
+}
+
+/// Try to parse a keyword from bold text. Handles an optional `PENDING` prefix,
+/// MUST BY durations, and enforces the restriction that PENDING may only modify
+/// obligation-style keywords.
+fn parse_keyword(bold_text: &str) -> ParsedKeyword {
+    let trimmed = bold_text.trim();
+    let upper = trimmed.to_uppercase();
+
+    // Detect PENDING prefix. Bare "PENDING" (with nothing after) is an error —
+    // the author must commit to an obligation strength.
+    if upper == "PENDING" {
+        return ParsedKeyword::Invalid(
+            "PENDING must be followed by an obligation keyword (MUST, SHOULD, MAY, etc.)"
+                .to_string(),
+        );
+    }
+    let (is_pending, body) = if let Some(rest) = upper.strip_prefix("PENDING ") {
+        // "PENDING " is 8 ASCII bytes, so the byte offset is the same in the
+        // original (un-uppercased) string.
+        let _ = rest;
+        (true, trimmed[8..].trim_start())
+    } else {
+        (false, trimmed)
+    };
+
+    let body_upper = body.to_uppercase();
+    let (kw, dur) = match parse_obligation(body, &body_upper) {
+        Some(pair) => pair,
+        None => {
+            return if is_pending {
+                ParsedKeyword::Invalid(format!(
+                    "PENDING must be followed by a valid obligation keyword, found `{}`",
+                    body
+                ))
+            } else {
+                ParsedKeyword::NotAKeyword
+            };
+        }
+    };
+
+    // PENDING may prefix any keyword that produces a clause. GIVEN is the
+    // sole exception: it's a grouping construct that contributes a condition
+    // to its children but never becomes a clause itself, so there is no test
+    // to defer.
+    if is_pending && kw == Keyword::Given {
+        return ParsedKeyword::Invalid(
+            "PENDING cannot modify GIVEN — GIVEN is a grouping construct, not \
+             a clause, so there is no test to defer"
+                .to_string(),
+        );
+    }
+
+    ParsedKeyword::Ok {
+        keyword: kw,
+        duration: dur,
+        pending: is_pending,
+    }
+}
+
+/// Match the obligation/permission/negative keywords without any PENDING
+/// awareness. `trimmed` is the original-case text and `upper` is its
+/// uppercase form — both are passed to avoid re-uppercasing for MUST BY.
+fn parse_obligation(trimmed: &str, upper: &str) -> Option<(Keyword, Option<Duration>)> {
+    match upper {
         "MUST" => Some((Keyword::Must, None)),
         "MUST NOT" => Some((Keyword::MustNot, None)),
         "SHOULD" => Some((Keyword::Should, None)),
@@ -106,7 +190,7 @@ fn parse_keyword(bold_text: &str) -> Option<(Keyword, Option<Duration>)> {
         _ => {
             // Check for MUST BY <duration>
             if upper.starts_with("MUST BY") {
-                let after_must_by = bold_text.trim()[7..].trim();
+                let after_must_by = trimmed[7..].trim();
                 if after_must_by.is_empty() {
                     // "MUST BY" with no duration — return keyword but no duration
                     // so the caller can report a parse error
@@ -147,8 +231,12 @@ fn parse_duration(s: &str) -> Option<Duration> {
 #[derive(Debug)]
 struct ItemFrame {
     text: String,
-    keyword: Option<(Keyword, Option<Duration>)>,
+    keyword: Option<(Keyword, Option<Duration>, bool)>,
     keyword_consumed: bool,
+    /// Set when the bold span was a malformed keyword (e.g. `PENDING WONT`).
+    /// The error is already recorded; the item should be dropped entirely
+    /// when the frame is popped.
+    keyword_invalid: bool,
     line: usize,
     /// Nested items collected while this frame is active (from child list items).
     nested_items: Vec<PendingItem>,
@@ -204,6 +292,7 @@ struct ParseState {
 #[derive(Debug, Clone)]
 struct PendingItem {
     keyword: Keyword,
+    pending: bool,
     text: String,
     temporal: Option<Temporal>,
     line: usize,
@@ -410,20 +499,49 @@ impl ParseState {
 
                 if self.in_heading.is_some() {
                     self.heading_text.push_str(&bold_text);
-                } else if let Some(frame) = self.current_item_mut() {
-                    if !frame.keyword_consumed {
-                        // Try to parse as a keyword
-                        if let Some(kw) = parse_keyword(&bold_text) {
-                            frame.keyword = Some(kw);
-                            frame.keyword_consumed = true;
-                        } else {
-                            // Not a keyword, just bold text in list item
-                            frame.text.push_str("**");
-                            frame.text.push_str(&bold_text);
-                            frame.text.push_str("**");
+                } else if self.current_item_mut().is_some() {
+                    // We need mutable access in two different branches that
+                    // don't overlap, plus access to `self` for error recording
+                    // in the Invalid branch. Split the logic to satisfy the
+                    // borrow checker.
+                    let consumed = self
+                        .current_item_mut()
+                        .map(|f| f.keyword_consumed)
+                        .unwrap_or(false);
+                    if !consumed {
+                        match parse_keyword(&bold_text) {
+                            ParsedKeyword::Ok {
+                                keyword,
+                                duration,
+                                pending,
+                            } => {
+                                let frame = self.current_item_mut().unwrap();
+                                frame.keyword = Some((keyword, duration, pending));
+                                frame.keyword_consumed = true;
+                            }
+                            ParsedKeyword::NotAKeyword => {
+                                let frame = self.current_item_mut().unwrap();
+                                frame.text.push_str("**");
+                                frame.text.push_str(&bold_text);
+                                frame.text.push_str("**");
+                            }
+                            ParsedKeyword::Invalid(msg) => {
+                                let line = {
+                                    let frame = self.current_item_mut().unwrap();
+                                    frame.keyword_consumed = true;
+                                    frame.keyword_invalid = true;
+                                    frame.line
+                                };
+                                self.errors.push(ParseError {
+                                    file: self.file.clone(),
+                                    line,
+                                    message: msg,
+                                });
+                            }
                         }
                     } else {
                         // Already have keyword, this bold text is part of clause text
+                        let frame = self.current_item_mut().unwrap();
                         frame.text.push_str("**");
                         frame.text.push_str(&bold_text);
                         frame.text.push_str("**");
@@ -461,18 +579,25 @@ impl ParseState {
                     text: String::new(),
                     keyword: None,
                     keyword_consumed: false,
+                    keyword_invalid: false,
                     line,
                     nested_items: Vec::new(),
                 });
             }
             Event::End(TagEnd::Item) => {
                 if let Some(frame) = self.item_stack.pop() {
+                    if frame.keyword_invalid {
+                        // Error already recorded while parsing the bold span;
+                        // drop the entire item (don't emit a clause or prose).
+                        self.just_finished_clause = false;
+                        return;
+                    }
                     let text = frame.text.trim().to_string();
                     let keyword = frame.keyword;
                     let line = frame.line;
                     let nested_items = frame.nested_items;
 
-                    if let Some((kw, dur)) = keyword {
+                    if let Some((kw, dur, pending)) = keyword {
                         // Validate MUST BY has a duration
                         if kw == Keyword::MustBy && dur.is_none() {
                             self.errors.push(ParseError {
@@ -495,7 +620,7 @@ impl ParseState {
                         // Validate OTHERWISE is not under MAY, WONT, or GIVEN
                         if kw == Keyword::Otherwise
                             && let Some(parent_frame) = self.item_stack.last()
-                            && let Some((parent_kw, _)) = &parent_frame.keyword
+                            && let Some((parent_kw, _, _)) = &parent_frame.keyword
                             && matches!(parent_kw, Keyword::May | Keyword::Wont | Keyword::Given)
                         {
                             self.errors.push(ParseError {
@@ -525,6 +650,7 @@ impl ParseState {
                         } else {
                         let item = PendingItem {
                             keyword: kw,
+                            pending,
                             text,
                             temporal,
                             line,
@@ -827,14 +953,20 @@ impl ParseState {
                     id_str
                 };
 
-                let hash = content_hash(item.keyword, &item.text, &condition);
+                let hash = content_hash(item.keyword, &item.text, &condition, item.pending);
 
-                // Build otherwise clauses from nested items that are OTHERWISE
+                // Build otherwise clauses from nested items that are OTHERWISE.
+                // An OTHERWISE child is pending if either the parent is pending
+                // (inheritance — a deferred obligation's fallback chain is also
+                // deferred) OR the child was explicitly written as
+                // `**PENDING OTHERWISE**`.
                 let mut otherwise_clauses = Vec::new();
                 let mut other_nested = Vec::new();
 
                 for nested in item.nested_items {
                     if nested.keyword == Keyword::Otherwise {
+                        let ow_pending = item.pending || nested.pending;
+
                         // Build otherwise clause
                         let ow_summary = format!("otherwise_{}", slugify(&nested.text));
                         let mut ow_id_parts: Vec<&str> = Vec::new();
@@ -845,7 +977,12 @@ impl ParseState {
                         ow_id_parts.push(&ow_summary);
                         let ow_id_str = ow_id_parts.join("::");
 
-                        let ow_hash = content_hash(Keyword::Otherwise, &nested.text, &condition);
+                        let ow_hash = content_hash(
+                            Keyword::Otherwise,
+                            &nested.text,
+                            &condition,
+                            ow_pending,
+                        );
 
                         otherwise_clauses.push(Clause {
                             id: ClauseId(ow_id_str),
@@ -861,6 +998,7 @@ impl ParseState {
                                 line: nested.line,
                             },
                             content_hash: ow_hash,
+                            pending: ow_pending,
                         });
                     } else {
                         other_nested.push(nested);
@@ -881,6 +1019,7 @@ impl ParseState {
                         line: item.line,
                     },
                     content_hash: hash,
+                    pending: item.pending,
                 };
 
                 result.push(clause);

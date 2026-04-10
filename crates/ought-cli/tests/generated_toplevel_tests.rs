@@ -778,6 +778,7 @@ fn test_ought_llm_agnostic_must_not_depend_on_any_provider_specific_features_in_
         hints: vec![],
         source_location: SourceLocation { file: PathBuf::from("spec.ought.md"), line: 1 },
         content_hash: "xyz".to_string(),
+        pending: false,
     };
     assert_eq!(clause.id.0, "ought::llm_agnostic::core_format_clause");
 
@@ -1000,6 +1001,7 @@ fn test_ought_reporting_must_map_test_results_back_to_the_original_spec_clauses_
         hints: vec![],
         source_location: SourceLocation { file: PathBuf::from("auth.ought.md"), line: 5 },
         content_hash: "abc".to_string(),
+        pending: false,
     };
     let spec = Spec {
         name: "Auth".to_string(),
@@ -1064,6 +1066,7 @@ fn test_ought_reporting_must_distinguish_failure_severity_must_failures_are_erro
             hints: vec![],
             source_location: SourceLocation { file: PathBuf::from("s.ought.md"), line: 1 },
             content_hash: "x".to_string(),
+            pending: false,
         }
     }
 
@@ -1133,6 +1136,7 @@ fn test_ought_reporting_must_produce_visually_attractive_terminal_output_that_ma
             hints: vec![],
             source_location: SourceLocation { file: PathBuf::from("t.ought.md"), line: 1 },
             content_hash: "x".to_string(),
+            pending: false,
         }
     }
 
@@ -1208,137 +1212,6 @@ fn test_ought_reporting_must_produce_visually_attractive_terminal_output_that_ma
     let pct_str = after[..end].trim();
     let pct: f64 = pct_str.parse().unwrap_or_else(|_| panic!("could not parse must_coverage_pct from: {pct_str}"));
     assert!(pct < 100.0, "MUST coverage must be < 100% when a MUST clause errored; got {pct}");
-}
-
-/// SHOULD support LLM-powered failure diagnosis that explains why a test failed
-///
-/// Calls the diagnose() function which currently returns an empty list (stubbed).
-#[test]
-fn test_ought_reporting_should_support_llm_powered_failure_diagnosis_that_explains_why_a_te() {
-    use ought_report::diagnosis::diagnose;
-    use ought_report::types::{Diagnosis, SuggestedFix};
-    use ought_run::{RunResult, TestResult, TestStatus, TestDetails};
-
-    let clause_id = "payment::checkout::must_charge_correct_amount";
-    let spec = Spec {
-        name: "Payment".to_string(),
-        metadata: Metadata::default(),
-        sections: vec![Section {
-            title: "Checkout".to_string(),
-            depth: 1,
-            prose: String::new(),
-            clauses: vec![Clause {
-                id: ClauseId(clause_id.to_string()),
-                keyword: Keyword::Must,
-                severity: Keyword::Must.severity(),
-                text: "charge the exact order total".to_string(),
-                condition: None,
-                otherwise: vec![],
-                temporal: None,
-                hints: vec![],
-                source_location: SourceLocation { file: PathBuf::from("payment.ought.md"), line: 10 },
-                content_hash: "ff".to_string(),
-            }],
-            subsections: vec![],
-        }],
-        source_path: PathBuf::from("payment.ought.md"),
-    };
-    let run = RunResult {
-        results: vec![TestResult {
-            clause_id: ClauseId(clause_id.to_string()),
-            status: TestStatus::Failed,
-            message: Some("expected 4999, got 4900".to_string()),
-            duration: std::time::Duration::from_millis(5),
-            details: TestDetails {
-                failure_message: Some("assertion `left == right` failed\n  left: 4999\n right: 4900".to_string()),
-                ..Default::default()
-            },
-        }],
-        total_duration: std::time::Duration::from_millis(5),
-    };
-
-    let result = diagnose(&run, &[spec]);
-    assert!(result.is_ok(), "diagnose() must not return Err: {:?}", result.err());
-
-    // Verify the Diagnosis and SuggestedFix types can be constructed
-    let example = Diagnosis {
-        clause_id: ClauseId(clause_id.to_string()),
-        explanation: "charge() applies a discount twice".to_string(),
-        suggested_fix: Some(SuggestedFix {
-            file: PathBuf::from("src/checkout.rs"),
-            line: 87,
-            description: "Remove the second call to apply_loyalty_discount()".to_string(),
-        }),
-    };
-    assert_eq!(example.clause_id.0, clause_id);
-    assert!(!example.explanation.is_empty());
-    let fix = example.suggested_fix.as_ref().unwrap();
-    assert_eq!(fix.line, 87);
-    assert!(!fix.description.is_empty());
-}
-
-/// SHOULD support LLM-powered test quality grading
-///
-/// Calls the grade() function which currently returns an empty list (stubbed).
-#[test]
-fn test_ought_reporting_should_support_llm_powered_test_quality_grading_that_evaluates_whet() {
-    use ought_report::grade::grade;
-    use ought_report::types::Grade;
-    use ought_run::{RunResult, TestResult, TestStatus, TestDetails};
-
-    let clause_id = "search::results::must_rank_by_relevance";
-    let spec = Spec {
-        name: "Search".to_string(),
-        metadata: Metadata::default(),
-        sections: vec![Section {
-            title: "Results".to_string(),
-            depth: 1,
-            prose: String::new(),
-            clauses: vec![Clause {
-                id: ClauseId(clause_id.to_string()),
-                keyword: Keyword::Must,
-                severity: Keyword::Must.severity(),
-                text: "rank results by descending relevance score".to_string(),
-                condition: None,
-                otherwise: vec![],
-                temporal: None,
-                hints: vec![],
-                source_location: SourceLocation { file: PathBuf::from("search.ought.md"), line: 3 },
-                content_hash: "bb".to_string(),
-            }],
-            subsections: vec![],
-        }],
-        source_path: PathBuf::from("search.ought.md"),
-    };
-    let run = RunResult {
-        results: vec![TestResult {
-            clause_id: ClauseId(clause_id.to_string()),
-            status: TestStatus::Passed,
-            message: None,
-            duration: std::time::Duration::from_millis(20),
-            details: TestDetails::default(),
-        }],
-        total_duration: std::time::Duration::from_millis(20),
-    };
-
-    let result = grade(&run, &[spec]);
-    assert!(result.is_ok(), "grade() must not return Err: {:?}", result.err());
-
-    // Verify Grade type can be constructed
-    let shallow_grade = Grade {
-        clause_id: ClauseId(clause_id.to_string()),
-        grade: 'C',
-        explanation: Some("Test only checks that results are non-empty".to_string()),
-    };
-    assert_eq!(shallow_grade.grade, 'C');
-    assert!(('A'..='F').contains(&shallow_grade.grade));
-
-    let excellent_grade = Grade {
-        clause_id: ClauseId(clause_id.to_string()),
-        grade: 'A',
-        explanation: None,
-    };
-    assert_eq!(excellent_grade.grade, 'A');
 }
 
 // ===========================================================================
