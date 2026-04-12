@@ -1,7 +1,10 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+use ought_run::RunnerConfig;
 
 use crate::resources::ResourceHandler;
 use crate::tools::ToolHandler;
@@ -11,7 +14,9 @@ use crate::tools::ToolHandler;
 /// Exposes ought tools and resources over stdio or SSE transport
 /// so AI assistants and IDE extensions can interact programmatically.
 pub struct McpServer {
-    config_path: PathBuf,
+    project_root: PathBuf,
+    spec_roots: Vec<PathBuf>,
+    runners: HashMap<String, RunnerConfig>,
 }
 
 /// Transport protocol for the MCP server.
@@ -165,8 +170,17 @@ fn resource_descriptors() -> Value {
 }
 
 impl McpServer {
-    pub fn new(config_path: PathBuf) -> Self {
-        Self { config_path }
+    /// Construct a server with pre-resolved project context.
+    ///
+    /// `project_root` is the base directory against which internal artifact
+    /// paths (manifests, results) are resolved. `spec_roots` and `runners`
+    /// come from the aggregate config loaded by the caller.
+    pub fn new(
+        project_root: PathBuf,
+        spec_roots: Vec<PathBuf>,
+        runners: HashMap<String, RunnerConfig>,
+    ) -> Self {
+        Self { project_root, spec_roots, runners }
     }
 
     /// Start serving on the given transport. Blocks until shutdown.
@@ -187,8 +201,15 @@ impl McpServer {
         let reader = BufReader::new(stdin);
         let mut lines = reader.lines();
 
-        let tool_handler = ToolHandler::new(self.config_path.clone());
-        let resource_handler = ResourceHandler::new(self.config_path.clone());
+        let tool_handler = ToolHandler::new(
+            self.project_root.clone(),
+            self.spec_roots.clone(),
+            self.runners.clone(),
+        );
+        let resource_handler = ResourceHandler::new(
+            self.project_root.clone(),
+            self.spec_roots.clone(),
+        );
 
         while let Some(line) = lines.next_line().await? {
             let line = line.trim().to_string();

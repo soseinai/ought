@@ -7,7 +7,9 @@ use std::fs;
 #[allow(unused_imports)]
 use std::process::Command;
 #[allow(unused_imports)]
-use ought_spec::{Config, SpecGraph};
+use ought_cli::config::Config;
+#[allow(unused_imports)]
+use ought_spec::SpecGraph;
 
 /// Returns the path to the `ought` binary built by `cargo test`.
 fn ought_bin() -> PathBuf {

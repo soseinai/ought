@@ -1,8 +1,8 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use ought_spec::{Config, SpecGraph};
+use ought_spec::SpecGraph;
 
 use crate::{collect_clauses, count_clauses};
 
@@ -10,46 +10,34 @@ use crate::{collect_clauses, count_clauses};
 ///
 /// Resources are read-only views into ought's state.
 pub struct ResourceHandler {
-    config_path: PathBuf,
+    /// Project root; relative paths in `spec_roots` and internal artifact
+    /// locations (manifest, results) are resolved against this.
+    project_root: PathBuf,
+    /// Spec roots resolved by the caller (may be absolute or
+    /// project-root-relative).
+    spec_roots: Vec<PathBuf>,
 }
 
 impl ResourceHandler {
-    pub fn new(config_path: PathBuf) -> Self {
-        Self { config_path }
+    pub fn new(project_root: PathBuf, spec_roots: Vec<PathBuf>) -> Self {
+        Self { project_root, spec_roots }
     }
 
-    /// Load config from the stored path.
-    fn load_config(&self) -> anyhow::Result<Config> {
-        Config::load(&self.config_path)
-    }
-
-    /// Resolve spec roots relative to the config file's parent directory.
-    fn resolve_roots(&self, config: &Config) -> Vec<PathBuf> {
-        let base = self
-            .config_path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."));
-        config
-            .specs
-            .roots
-            .iter()
-            .map(|r| base.join(r))
-            .collect()
-    }
-
-    /// Load the spec graph from config.
-    fn load_specs(&self, config: &Config) -> anyhow::Result<SpecGraph> {
-        let roots = self.resolve_roots(config);
-        SpecGraph::from_roots(&roots).map_err(|errors| {
+    /// Load the spec graph from the configured roots.
+    fn load_specs(&self) -> anyhow::Result<SpecGraph> {
+        SpecGraph::from_roots(&self.spec_roots).map_err(|errors| {
             let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
             anyhow::anyhow!("spec parse errors:\n{}", msgs.join("\n"))
         })
     }
 
+    fn base(&self) -> &Path {
+        &self.project_root
+    }
+
     /// `ought://specs` -- list all spec files with clause counts.
     pub fn specs_list(&self) -> anyhow::Result<Value> {
-        let config = self.load_config()?;
-        let specs = self.load_specs(&config)?;
+        let specs = self.load_specs()?;
 
         let list: Vec<Value> = specs
             .specs()
@@ -73,8 +61,7 @@ impl ResourceHandler {
 
     /// `ought://specs/{name}` -- parsed clauses for a specific spec.
     pub fn specs_get(&self, name: &str) -> anyhow::Result<Value> {
-        let config = self.load_config()?;
-        let specs = self.load_specs(&config)?;
+        let specs = self.load_specs()?;
 
         let spec = specs
             .specs()
@@ -111,14 +98,8 @@ impl ResourceHandler {
 
     /// `ought://results/latest` -- most recent run results.
     pub fn results_latest(&self) -> anyhow::Result<Value> {
-        let _config = self.load_config()?;
-        let base = self
-            .config_path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."));
-
         // Look for a results file in the project
-        let results_path = base.join("ought/results/latest.json");
+        let results_path = self.base().join("ought/results/latest.json");
         if results_path.exists() {
             let content = std::fs::read_to_string(&results_path)?;
             let value: Value = serde_json::from_str(&content)?;
@@ -134,14 +115,9 @@ impl ResourceHandler {
 
     /// `ought://coverage` -- clause coverage map.
     pub fn coverage(&self) -> anyhow::Result<Value> {
-        let config = self.load_config()?;
-        let specs = self.load_specs(&config)?;
+        let specs = self.load_specs()?;
 
-        let base = self
-            .config_path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."));
-        let manifest_path = base.join("ought/ought-gen/manifest.toml");
+        let manifest_path = self.base().join("ought/ought-gen/manifest.toml");
         let manifest = ought_gen::Manifest::load(&manifest_path)?;
 
         let mut coverage_entries = Vec::new();
@@ -190,11 +166,7 @@ impl ResourceHandler {
 
     /// `ought://manifest` -- generation manifest with hashes and staleness.
     pub fn manifest(&self) -> anyhow::Result<Value> {
-        let base = self
-            .config_path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."));
-        let manifest_path = base.join("ought/ought-gen/manifest.toml");
+        let manifest_path = self.base().join("ought/ought-gen/manifest.toml");
         let manifest = ought_gen::Manifest::load(&manifest_path)?;
 
         let entries: Vec<Value> = manifest

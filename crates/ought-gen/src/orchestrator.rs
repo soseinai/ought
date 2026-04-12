@@ -1,9 +1,8 @@
 use std::io::Read;
 use std::process::{Command, Stdio};
 
-use ought_spec::Config;
-
 use crate::agent::{AgentAssignment, AgentReport};
+use crate::config::GeneratorConfig;
 
 /// Orchestrates spawning LLM agents that connect to ought's MCP server
 /// and drive the generation loop themselves.
@@ -63,16 +62,16 @@ fn build_system_prompt(assignment: &AgentAssignment) -> String {
 }
 
 impl Orchestrator {
-    pub fn new(config: &Config, verbose: bool) -> Self {
+    pub fn new(config: &GeneratorConfig, verbose: bool) -> Self {
         // Determine the agent command from the provider.
-        let agent_command = match config.generator.provider.to_lowercase().as_str() {
+        let agent_command = match config.provider.to_lowercase().as_str() {
             "anthropic" | "claude" => "claude".to_string(),
             other => other.to_string(),
         };
         Self {
             agent_command,
-            model: config.generator.model.clone(),
-            parallelism: config.generator.parallelism.max(1),
+            model: config.model.clone(),
+            parallelism: config.parallelism.max(1),
             verbose,
         }
     }

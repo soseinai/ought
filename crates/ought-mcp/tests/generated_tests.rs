@@ -1,6 +1,7 @@
 #![allow(dead_code, clippy::all)]
 #![allow(non_snake_case, unused_imports)]
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use ought_mcp::server::{McpServer, Transport};
 use ought_mcp::tools::ToolHandler;
@@ -10,17 +11,17 @@ use ought_mcp::resources::ResourceHandler;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// The McpServer type exists and can be constructed with a config path.
+/// The McpServer type exists and can be constructed with project context.
 fn make_server() -> McpServer {
-    McpServer::new(PathBuf::from("ought.toml"))
+    McpServer::new(PathBuf::from("."), vec![], HashMap::new())
 }
 
 fn make_tool_handler() -> ToolHandler {
-    ToolHandler::new(PathBuf::from("ought.toml"))
+    ToolHandler::new(PathBuf::from("."), vec![], HashMap::new())
 }
 
 fn make_resource_handler() -> ResourceHandler {
-    ResourceHandler::new(PathBuf::from("ought.toml"))
+    ResourceHandler::new(PathBuf::from("."), vec![])
 }
 
 // ===========================================================================
@@ -406,14 +407,16 @@ fn test_mcp_server_error_handling_must_return_mcp_compliant_error_responses_with
 
 /// MUST NOT crash the server on a single tool invocation failure
 ///
-/// Verifies that calling a tool with a missing config returns an error, not a panic.
+/// Verifies that calling a tool in a way that produces an error returns a
+/// JSON-RPC error response rather than panicking.
 #[test]
 fn test_mcp_server_error_handling_must_not_crash_the_server_on_a_single_tool_invocation_failure() {
     let tool_handler = make_tool_handler();
     let resource_handler = make_resource_handler();
 
-    // Call ought_check which will fail because ought.toml doesn't exist at "ought.toml"
-    let request = r#"{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "ought_check", "arguments": {}}}"#;
+    // ought_inspect requires a `clause_id` argument; omitting it is a
+    // genuine failure that must surface as a structured JSON-RPC error.
+    let request = r#"{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "ought_inspect", "arguments": {}}}"#;
     let response = McpServer::handle_request(request, &tool_handler, &resource_handler);
 
     // Should get a proper JSON-RPC error, not a panic

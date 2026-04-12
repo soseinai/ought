@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::time::Duration;
 use std::collections::HashMap;
-use ought_spec::{ClauseId, Config};
+use ought_spec::ClauseId;
+use ought_run::RunnerConfig;
 use ought_gen::GeneratedTest;
 use ought_gen::generator::Language;
 use ought_run::{TestResult, TestStatus, TestDetails, RunResult};
@@ -102,18 +103,15 @@ fn test_runner_language_runners_should_ship_with_a_javascript_typescript_runner(
 /// so custom names are fully round-tripped through config parsing.
 #[test]
 fn test_runner_language_runners_should_support_custom_runners_via_the_runner_name_config_in_ought_t() {
-    use ought_spec::config::Config;
+    // Test harness mirrors just the part of `ought.toml` this test cares about:
+    // arbitrary `[runner.<name>]` tables deserialize into `RunnerConfig`. The
+    // aggregate config struct lives in `ought-cli` and is tested there.
+    #[derive(serde::Deserialize)]
+    struct RunnerOnly {
+        runner: HashMap<String, RunnerConfig>,
+    }
 
-    // A config that exercises multiple custom runner names alongside the
-    // built-in ones, including names that are not in the `from_name` factory.
     let toml = r#"
-[project]
-name = "custom-runner-test"
-version = "0.1.0"
-
-[generator]
-provider = "anthropic"
-
 [runner.rust]
 command = "cargo test"
 test_dir = "ought/ought-gen/"
@@ -127,22 +125,16 @@ command = "dotnet test"
 test_dir = "tests/ought/"
 "#;
 
-    let tmp = std::env::temp_dir()
-        .join(format!("ought_custom_runner_{}", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
-    let cfg_path = tmp.join("ought.toml");
-    std::fs::write(&cfg_path, toml).unwrap();
-
-    let config = Config::load(&cfg_path)
+    let parsed: RunnerOnly = toml::from_str(toml)
         .expect("ought.toml with custom [runner.*] sections must load without error");
 
     // Built-in runner name is preserved.
-    let rust_cfg = config.runner.get("rust")
+    let rust_cfg = parsed.runner.get("rust")
         .expect("runner.rust must be present in parsed config");
     assert_eq!(rust_cfg.command, "cargo test");
 
     // Fully custom runner name is preserved with its command.
-    let ruby_cfg = config.runner.get("my-ruby-runner")
+    let ruby_cfg = parsed.runner.get("my-ruby-runner")
         .expect("runner.my-ruby-runner must be present — custom runner names must be supported");
     assert_eq!(
         ruby_cfg.command, "bundle exec rspec",
@@ -155,19 +147,17 @@ test_dir = "tests/ought/"
     );
 
     // A second custom name also round-trips correctly.
-    let dotnet_cfg = config.runner.get("dotnet")
+    let dotnet_cfg = parsed.runner.get("dotnet")
         .expect("runner.dotnet must be present — arbitrary runner names must be supported");
     assert_eq!(dotnet_cfg.command, "dotnet test");
 
     // The total number of runners matches what was declared.
     assert_eq!(
-        config.runner.len(),
+        parsed.runner.len(),
         3,
         "all three [runner.*] sections must be parsed; found {:?}",
-        config.runner.keys().collect::<Vec<_>>()
+        parsed.runner.keys().collect::<Vec<_>>()
     );
-
-    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 /// MAY ship with a Go runner
@@ -950,8 +940,6 @@ fn test_runner_execution_must_not_modify_generated_test_files_during_execution()
 /// MUST invoke the configured test command from `ought.toml` for each language runner
 #[test]
 fn test_runner_execution_must_invoke_the_configured_test_command_from_ought_toml_for_each() {
-    use ought_spec::config::Config;
-
     // Verify the runner factory recognises every supported language key and returns
     // a runner whose name matches the key used in ought.toml [runner.<name>] tables.
     let cases = [
@@ -970,15 +958,15 @@ fn test_runner_execution_must_invoke_the_configured_test_command_from_ought_toml
         );
     }
 
-    // Verify that a parsed ought.toml preserves the configured command strings.
+    // Verify that the runner sub-config preserves the configured command
+    // strings when deserialized from the `[runner.*]` portion of `ought.toml`.
+    // (The aggregate config struct lives in `ought-cli` and is tested there.)
+    #[derive(serde::Deserialize)]
+    struct RunnerOnly {
+        runner: HashMap<String, RunnerConfig>,
+    }
+
     let toml = r#"
-[project]
-name = "test"
-version = "0.1.0"
-
-[generator]
-provider = "anthropic"
-
 [runner.rust]
 command = "cargo test"
 test_dir = "ought/ought-gen/"
@@ -995,12 +983,7 @@ test_dir = "ought/ought-gen/"
 command = "go test ./..."
 test_dir = "ought/ought-gen/"
 "#;
-    let tmp = std::env::temp_dir()
-        .join(format!("ought_cmd_cfg_{}", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
-    std::fs::write(tmp.join("ought.toml"), toml).unwrap();
-
-    let config = Config::load(&tmp.join("ought.toml"))
+    let parsed: RunnerOnly = toml::from_str(toml)
         .expect("ought.toml must load without error");
 
     let expected_commands = [
@@ -1010,7 +993,7 @@ test_dir = "ought/ought-gen/"
         ("go",         "go test ./..."),
     ];
     for (lang, expected_cmd) in expected_commands {
-        let cfg = config.runner.get(lang)
+        let cfg = parsed.runner.get(lang)
             .unwrap_or_else(|| panic!("runner.{lang} config must be present in ought.toml"));
         assert_eq!(
             cfg.command, expected_cmd,
@@ -1018,8 +1001,6 @@ test_dir = "ought/ought-gen/"
              expected {expected_cmd:?}, got {:?}", cfg.command
         );
     }
-
-    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 /// MUST map individual test pass/fail results back to clause identifiers

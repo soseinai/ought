@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use ought_spec::Config;
+use ought_run::RunnerConfig;
 
 /// A single test function extracted from a proof file.
 #[derive(Debug, Clone)]
@@ -36,12 +36,12 @@ pub struct ProofIndex {
 impl ProofIndex {
     /// Build an index by walking every configured runner's `test_dir`.
     /// Missing or unreadable dirs are silently skipped — proofs are optional.
-    pub fn build(config: &Config, config_dir: &Path) -> Self {
+    pub fn build(runners: &HashMap<String, RunnerConfig>, project_root: &Path) -> Self {
         let mut by_clause: HashMap<String, (PathBuf, Vec<Proof>)> = HashMap::new();
 
-        for (runner_name, runner_cfg) in &config.runner {
+        for (runner_name, runner_cfg) in runners {
             let language = runner_language(runner_name);
-            let test_dir = config_dir.join(&runner_cfg.test_dir);
+            let test_dir = project_root.join(&runner_cfg.test_dir);
             if !test_dir.is_dir() {
                 continue;
             }

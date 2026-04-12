@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{
@@ -11,7 +12,8 @@ use axum::{
 use rust_embed::Embed;
 use serde::Deserialize;
 
-use ought_spec::{Config, SpecGraph};
+use ought_run::RunnerConfig;
+use ought_spec::SpecGraph;
 
 use crate::api::build_api_response;
 use crate::proofs::ProofIndex;
@@ -58,34 +60,21 @@ async fn static_handler(uri: axum::http::Uri) -> impl IntoResponse {
 }
 
 /// Serve the ought viewer on the given port.
-/// Parses specs from the config, starts an HTTP server, and optionally opens the browser.
-pub async fn serve(config_path: Option<&Path>, port: u16, open_browser: bool) -> anyhow::Result<()> {
-    let (cfg_path, config) = match config_path {
-        Some(path) => {
-            let config = Config::load(path)?;
-            (path.to_path_buf(), config)
-        }
-        None => Config::discover()?,
-    };
-
-    let config_dir = cfg_path
-        .parent()
-        .unwrap_or(Path::new("."))
-        .to_path_buf();
-
-    let roots: Vec<PathBuf> = config
-        .specs
-        .roots
-        .iter()
-        .map(|r| config_dir.join(r))
-        .collect();
-
-    let graph = SpecGraph::from_roots(&roots).map_err(|errors| {
+/// Parses specs from the provided roots, starts an HTTP server, and optionally
+/// opens the browser. Loading `ought.toml` is the caller's job.
+pub async fn serve(
+    project_root: PathBuf,
+    spec_roots: Vec<PathBuf>,
+    runners: HashMap<String, RunnerConfig>,
+    port: u16,
+    open_browser: bool,
+) -> anyhow::Result<()> {
+    let graph = SpecGraph::from_roots(&spec_roots).map_err(|errors| {
         let messages: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
         anyhow::anyhow!("spec parse errors:\n  {}", messages.join("\n  "))
     })?;
 
-    let proof_index = ProofIndex::build(&config, &config_dir);
+    let proof_index = ProofIndex::build(&runners, &project_root);
     eprintln!(
         "Proof index built: {} proofs across {} clauses",
         proof_index.proof_count(),

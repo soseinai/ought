@@ -1,6 +1,6 @@
 [package]
-name = "ought-spec"
-description = "Parser and clause IR for the .ought.md spec format"
+name = "ought-core"
+description = "Shared cross-cutting types for the ought workspace"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,10 +10,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-anyhow.workspace = true
-thiserror.workspace = true
 serde.workspace = true
-pulldown-cmark.workspace = true
 
 [lints]
 workspace = true

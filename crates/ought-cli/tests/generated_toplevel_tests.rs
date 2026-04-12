@@ -3,7 +3,8 @@
 use std::path::{Path, PathBuf};
 use std::fs;
 use std::process::Command;
-use ought_spec::{Config, SpecGraph, Parser};
+use ought_cli::config::Config;
+use ought_spec::{SpecGraph, Parser};
 use ought_spec::types::*;
 
 // ===========================================================================
@@ -718,7 +719,7 @@ fn test_ought_llm_agnostic_must_be_agnostic_to_which_llm_provider_generates_the_
 /// MUST allow the provider and model to be configured in `ought.toml`
 #[test]
 fn test_ought_llm_agnostic_must_allow_the_provider_and_model_to_be_configured_in_ought_toml() {
-    use ought_spec::config::Config;
+    use ought_cli::config::Config;
 
     let dir = std::env::temp_dir().join(format!("ought_llm_agnostic_config_test_{}", std::process::id()));
     fs::create_dir_all(&dir).expect("must create temp dir");
@@ -900,7 +901,7 @@ fn test_ought_language_agnostic_must_ship_with_runners_for_at_least_rust_and_one
 /// MUST NOT require any language-specific SDK or library in the project under test
 #[test]
 fn test_ought_language_agnostic_must_not_require_any_language_specific_sdk_or_library_in_the_project() {
-    use ought_spec::config::RunnerConfig;
+    use ought_run::RunnerConfig;
     use ought_gen::GeneratedTest;
     use ought_gen::generator::Language;
 
@@ -931,7 +932,7 @@ fn test_ought_language_agnostic_must_not_require_any_language_specific_sdk_or_li
 /// SHOULD support custom runners via configuration
 #[test]
 fn test_ought_language_agnostic_should_support_custom_runners_via_configuration() {
-    use ought_spec::config::Config;
+    use ought_cli::config::Config;
 
     let toml_str = r#"
 [project]

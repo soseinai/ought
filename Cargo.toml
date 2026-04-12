@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/ought-core",
     "crates/ought-spec",
     "crates/ought-gen",
     "crates/ought-run",
@@ -21,6 +22,7 @@ keywords = ["testing", "specs", "llm", "behavioral", "deontic"]
 categories = ["development-tools::testing"]
 
 [workspace.dependencies]
+ought-core = { path = "crates/ought-core", version = "0.2.0-rc3" }
 ought-spec = { path = "crates/ought-spec", version = "0.2.0-rc3" }
 ought-gen = { path = "crates/ought-gen", version = "0.2.0-rc3" }
 ought-run = { path = "crates/ought-run", version = "0.2.0-rc3" }

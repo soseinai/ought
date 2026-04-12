@@ -1,8 +1,11 @@
+pub mod config;
 pub mod gen_server;
 pub mod gen_tools;
 pub mod resources;
 pub mod server;
 pub mod tools;
+
+pub use config::McpConfig;
 
 use ought_spec::{Clause, Section};
 
