@@ -83,12 +83,23 @@ pub struct RunnerConfig {
     pub test_dir: PathBuf,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct McpConfig {
     #[serde(default)]
     pub enabled: bool,
-    #[serde(default = "default_transport")]
-    pub transport: String,
+    #[serde(default)]
+    pub transport: McpTransport,
+}
+
+/// Transport protocol used to expose the MCP server.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum McpTransport {
+    /// Standard input/output — default for local IDE integration.
+    #[default]
+    Stdio,
+    /// Server-Sent Events over HTTP — for remote clients.
+    Sse,
 }
 
 impl Config {
@@ -135,15 +146,6 @@ impl Default for ContextConfig {
     }
 }
 
-impl Default for McpConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            transport: default_transport(),
-        }
-    }
-}
-
 fn default_version() -> String {
     "0.1.0".into()
 }
@@ -155,9 +157,6 @@ fn default_max_files() -> usize {
 }
 fn default_multiplier() -> f64 {
     1.0
-}
-fn default_transport() -> String {
-    "stdio".into()
 }
 fn default_parallelism() -> usize {
     1
