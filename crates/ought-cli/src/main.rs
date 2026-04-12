@@ -165,16 +165,16 @@ enum McpCommand {
     /// Start the MCP server.
     Serve {
         /// Transport protocol.
-        #[arg(long, default_value = "stdio")]
-        transport: String,
+        #[arg(long, default_value = "stdio", value_enum)]
+        transport: TransportArg,
 
         /// Port for SSE transport.
         #[arg(long)]
         port: Option<u16>,
 
-        /// Server mode: "standard" (default) or "generation" for agent-driven generation.
-        #[arg(long, default_value = "standard")]
-        mode: String,
+        /// Server mode.
+        #[arg(long, default_value = "standard", value_enum)]
+        mode: McpModeArg,
 
         /// Path to assignment JSON file (required for generation mode).
         #[arg(long)]
@@ -183,6 +183,24 @@ enum McpCommand {
 
     /// Register with MCP-compatible coding agents.
     Install,
+}
+
+/// MCP server transport selected on the command line.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum TransportArg {
+    /// Standard input/output (default, for local IDE integration).
+    Stdio,
+    /// Server-Sent Events (for remote clients).
+    Sse,
+}
+
+/// MCP server operational mode.
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum McpModeArg {
+    /// Standard MCP server exposing ought tools and resources.
+    Standard,
+    /// Agent-driven generation mode (invoked by `ought generate`).
+    Generation,
 }
 
 #[derive(Clone, clap::ValueEnum)]
@@ -1644,26 +1662,31 @@ fn main() -> anyhow::Result<()> {
         }
         Command::Mcp(args) => match &args.command {
             McpCommand::Serve {
-                transport: _,
-                port: _,
+                transport,
+                port,
                 mode,
                 assignment,
-            } => {
-                if mode == "generation" {
+            } => match mode {
+                McpModeArg::Generation => {
                     let assignment_path = assignment
                         .as_ref()
                         .ok_or_else(|| anyhow::anyhow!("--assignment is required for generation mode"))?;
                     let server =
                         ought_mcp::gen_server::GenMcpServer::from_assignment_path(assignment_path)?;
                     tokio::runtime::Runtime::new()?.block_on(server.serve_stdio())
-                } else {
+                }
+                McpModeArg::Standard => {
                     let (config_path, _config) = load_config(&cli.config)?;
                     let server = ought_mcp::server::McpServer::new(config_path);
-                    tokio::runtime::Runtime::new()?.block_on(
-                        server.serve(ought_mcp::server::Transport::Stdio),
-                    )
+                    let server_transport = match transport {
+                        TransportArg::Stdio => ought_mcp::server::Transport::Stdio,
+                        TransportArg::Sse => ought_mcp::server::Transport::Sse {
+                            port: port.unwrap_or(19877),
+                        },
+                    };
+                    tokio::runtime::Runtime::new()?.block_on(server.serve(server_transport))
                 }
-            }
+            },
             McpCommand::Install => {
                 ought_mcp::server::McpServer::install()?;
                 eprintln!("Registered ought with MCP-compatible coding agents.");
