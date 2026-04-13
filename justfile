@@ -36,9 +36,12 @@ lint-ui: _npm-install
 build-rust profile="debug":
     cargo build {{ if profile == "release" { "--release" } else { "" } }}
 
-# Run Rust tests (UI must be built first so rust-embed can find dist/)
+# Run Rust tests. UI must be built first so rust-embed can find dist/.
+# The `ought` binary must also exist under target/ so ought-dogfood's CLI
+# integration tests can shell out to it.
 [group: 'rust']
 test-rust: build-ui
+    cargo build -p ought
     cargo test
 
 # Forward extra args to `cargo run` (UI must be built first so rust-embed can find dist/)

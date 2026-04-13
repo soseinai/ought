@@ -760,13 +760,16 @@ dependencies = [
  "clap",
  "notify",
  "ought-analysis",
+ "ought-core",
  "ought-gen",
  "ought-mcp",
  "ought-report",
  "ought-run",
  "ought-server",
  "ought-spec",
+ "serde",
  "tokio",
+ "toml",
 ]
 
 [[package]]
@@ -780,6 +783,33 @@ dependencies = [
  "ought-spec",
  "serde",
  "thiserror",
+]
+
+[[package]]
+name = "ought-core"
+version = "0.2.0-rc3"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "ought-dogfood"
+version = "0.2.0-rc3"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "ought",
+ "ought-analysis",
+ "ought-core",
+ "ought-gen",
+ "ought-mcp",
+ "ought-report",
+ "ought-run",
+ "ought-server",
+ "ought-spec",
+ "serde",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -833,6 +863,7 @@ dependencies = [
  "serde",
  "thiserror",
  "tokio",
+ "toml",
 ]
 
 [[package]]
@@ -842,6 +873,7 @@ dependencies = [
  "anyhow",
  "axum",
  "mime_guess",
+ "ought-run",
  "ought-spec",
  "rust-embed",
  "serde",
@@ -857,7 +889,6 @@ dependencies = [
  "pulldown-cmark",
  "serde",
  "thiserror",
- "toml",
 ]
 
 [[package]]

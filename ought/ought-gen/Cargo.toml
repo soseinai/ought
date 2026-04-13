@@ -1,0 +1,35 @@
+[package]
+name = "ought-dogfood"
+description = "Dogfooding tests: ought's own .ought.md specs run as #[test]s against its own code"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[lib]
+name = "ought_dogfood"
+path = "src/lib.rs"
+
+[dependencies]
+ought-core.workspace = true
+ought-spec.workspace = true
+ought-gen.workspace = true
+ought-run.workspace = true
+ought-mcp.workspace = true
+ought-analysis.workspace = true
+ought-report.workspace = true
+ought-server.workspace = true
+ought.workspace = true
+
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+chrono.workspace = true
+
+[lints]
+workspace = true

@@ -1,11 +1,11 @@
 use std::path::Path;
 use std::time::Duration;
 
-use ought_spec::parser::Parser;
+use ought_spec::parser::{OughtMdParser, Parser};
 use ought_spec::types::*;
 
 fn parse(md: &str) -> Spec {
-    Parser::parse_string(md, Path::new("test.ought.md")).expect("parse failed")
+    OughtMdParser.parse_string(md, Path::new("test.ought.md")).expect("parse failed")
 }
 
 #[test]
@@ -473,7 +473,7 @@ fn test_pending_does_not_inherit_to_nested_obligations() {
 #[test]
 fn test_bare_pending_errors() {
     let md = "# Svc\n\n## Rules\n\n- **PENDING** no strength here\n";
-    let err = Parser::parse_string(md, Path::new("t.ought.md")).expect_err("should fail");
+    let err = OughtMdParser.parse_string(md, Path::new("t.ought.md")).expect_err("should fail");
     assert!(err.iter().any(|e| e.message.contains("PENDING must be followed")));
 }
 
@@ -514,6 +514,6 @@ fn test_pending_given_errors() {
     // GIVEN is the one keyword PENDING cannot modify: it's a grouping
     // construct that never becomes a clause, so there's no test to defer.
     let md = "# Svc\n\n## Rules\n\n- **PENDING GIVEN** the user is authed\n";
-    let err = Parser::parse_string(md, Path::new("t.ought.md")).expect_err("should fail");
+    let err = OughtMdParser.parse_string(md, Path::new("t.ought.md")).expect_err("should fail");
     assert!(err.iter().any(|e| e.message.contains("PENDING cannot modify GIVEN")));
 }

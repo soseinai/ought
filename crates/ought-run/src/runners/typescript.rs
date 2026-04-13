@@ -24,18 +24,16 @@ fn command_exists(cmd: &str) -> bool {
 }
 
 /// Convert a `ClauseId` like `auth::login::must_return_jwt` into the jest
-/// test name: `auth_login_must_return_jwt`. The mapping is lossy (section
-/// boundaries are erased), so the runtime mapping back to a `ClauseId` relies
-/// on the `name_to_clause` HashMap built from the manifest;
-/// `test_name_to_clause_id` is only a best-effort fallback when that lookup misses.
+/// test name: `test_auth__login__must_return_jwt`. Double-underscore preserves
+/// section boundaries so the mapping is reversible by `test_name_to_clause_id`.
 fn clause_id_to_test_name(clause_id: &ClauseId) -> String {
-    clause_id.0.replace("::", "_")
+    format!("test_{}", clause_id.0.replace("::", "__"))
 }
 
-/// Best-effort fallback: wrap the test name as a `ClauseId` directly. This is only
-/// used when the HashMap lookup fails; the mangling above is not reversible.
+/// Recover a `ClauseId` from a test name produced by `clause_id_to_test_name`.
 fn test_name_to_clause_id(test_name: &str) -> ClauseId {
-    ClauseId(test_name.to_string())
+    let stripped = test_name.strip_prefix("test_").unwrap_or(test_name);
+    ClauseId(stripped.replace("__", "::"))
 }
 
 /// Parse jest --verbose output.

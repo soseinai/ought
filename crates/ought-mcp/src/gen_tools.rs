@@ -238,7 +238,14 @@ impl GenToolHandler {
 
     // ── Internal helpers ────────────────────────────────────────────────
 
-    /// Write a test file and update the manifest (saved to disk immediately).
+    /// Write a test into its per-subsection file and update the manifest.
+    ///
+    /// Under the per-subsection layout, many clauses share one file. This
+    /// function merges the incoming `code` (a single `#[test]` block plus
+    /// any doc comments) into the file: if a test with the same function
+    /// name already exists, it is replaced; otherwise the new block is
+    /// appended. If the file doesn't exist yet, a minimal Rust file header
+    /// is written first.
     fn write_test_file(&self, clause_id: &str, code: &str) -> anyhow::Result<PathBuf> {
         let test_dir = Path::new(&self.assignment.test_dir);
         let lang = self.assignment.target_language.as_str();
@@ -249,8 +256,18 @@ impl GenToolHandler {
             std::fs::create_dir_all(parent)?;
         }
 
-        std::fs::write(&file_path, code)
-            .map_err(|e| anyhow::anyhow!("failed to write test file {}: {}", file_path.display(), e))?;
+        let merged = if file_path.exists() {
+            let existing = std::fs::read_to_string(&file_path).map_err(|e| {
+                anyhow::anyhow!("failed to read {}: {}", file_path.display(), e)
+            })?;
+            merge_test_block(&existing, code, lang)
+        } else {
+            format!("{}\n{}\n", default_file_header(lang), code.trim_end())
+        };
+
+        std::fs::write(&file_path, merged).map_err(|e| {
+            anyhow::anyhow!("failed to write test file {}: {}", file_path.display(), e)
+        })?;
 
         // Find the content_hash from the assignment.
         let content_hash = self.find_content_hash(clause_id);
@@ -293,6 +310,13 @@ impl GenToolHandler {
 }
 
 /// Derive the test file path from a clause ID and language.
+///
+/// Uses the **per-subsection** layout: all clauses in the same subsection
+/// share a single `<subsection>_test.rs` file. For a clause ID like
+/// `parser::clause_ir::must_generate_foo`, the subsection is `clause_ir`
+/// and the file is `<test_dir>/src/parser/clause_ir_test.rs`. For Rust,
+/// tests compile as modules of the `ought-dogfood` crate; other languages
+/// still use a single per-subsection file under `<test_dir>/<subsystem>/`.
 fn derive_test_file_path(test_dir: &Path, clause_id: &str, lang: &str) -> PathBuf {
     let ext = match lang {
         "rust" => "_test.rs",
@@ -302,8 +326,152 @@ fn derive_test_file_path(test_dir: &Path, clause_id: &str, lang: &str) -> PathBu
         "go" => "_test.go",
         _ => "_test.rs",
     };
-    let path_str = clause_id.replace("::", "/");
-    test_dir.join(format!("{}{}", path_str, ext))
+
+    let segments: Vec<&str> = clause_id.split("::").collect();
+    // Need at least <subsystem>::<subsection>::<clause> — 3 segments — to
+    // have both a path prefix and a section file stem. Degrade gracefully
+    // for shorter IDs.
+    let (dir_segs, file_stem): (&[&str], &str) = match segments.as_slice() {
+        [] => (&[], "unknown"),
+        [one] => (&[][..], *one),
+        // 2+ segments: drop the last (clause slug), use second-to-last as stem.
+        rest => {
+            let len = rest.len();
+            (&rest[..len - 2], rest[len - 2])
+        }
+    };
+
+    let mut path = test_dir.to_path_buf();
+    // Rust tests compile under the cargo crate rooted at test_dir; land them
+    // in `src/` so the module tree picks them up. Other languages don't
+    // have this constraint, so we skip the src/ prefix there.
+    if lang == "rust" {
+        path.push("src");
+    }
+    for seg in dir_segs {
+        path.push(seg);
+    }
+    path.push(format!("{}{}", file_stem, ext));
+    path
+}
+
+/// Minimal file header for a freshly-created per-subsection test file.
+///
+/// For Rust, we blanket-allow the lint categories the existing generated
+/// files use (dead_code, unused_imports, etc.) so a partially-populated
+/// file compiles with `warnings = deny`. Non-Rust languages return an
+/// empty header.
+fn default_file_header(lang: &str) -> &'static str {
+    match lang {
+        "rust" => "#![allow(dead_code, clippy::all, non_snake_case, unused_imports)]\n",
+        _ => "",
+    }
+}
+
+/// Extract the `#[test]` function name from a test-block string, if any.
+fn extract_test_fn_name(code: &str) -> Option<String> {
+    let mut saw_test_attr = false;
+    for line in code.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("#[test]") {
+            saw_test_attr = true;
+            continue;
+        }
+        if saw_test_attr && let Some(rest) = trimmed.strip_prefix("fn ") {
+            let end = rest.find(['(', '<']).unwrap_or(rest.len());
+            return Some(rest[..end].trim().to_string());
+        }
+    }
+    None
+}
+
+/// Find the byte range `[start, end)` of an existing `#[test] fn <name>` block
+/// in `content`. `start` covers any preceding `///` doc comments and `#[...]`
+/// attributes; `end` is one past the closing `}` of the function body.
+fn find_test_block(content: &str, fn_name: &str) -> Option<(usize, usize)> {
+    let needle = format!("fn {}(", fn_name);
+    let fn_idx = content.find(&needle)?;
+
+    // Walk backwards from fn_idx to pick up attributes and doc comments that
+    // belong to this test.
+    let prefix = &content[..fn_idx];
+    let mut start = fn_idx;
+    for (line_start, line) in prefix.rmatch_indices('\n').map(|(i, _)| i + 1).zip(prefix.lines().rev()) {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("#[") || trimmed.starts_with("///") || trimmed.is_empty() {
+            start = line_start;
+        } else {
+            break;
+        }
+    }
+
+    // Walk forward from fn_idx counting braces to find the body end.
+    let bytes = content.as_bytes();
+    let mut depth = 0i32;
+    let mut i = fn_idx;
+    let mut started = false;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => {
+                depth += 1;
+                started = true;
+            }
+            b'}' => {
+                depth -= 1;
+                if started && depth == 0 {
+                    // Include the trailing newline if there is one.
+                    let mut end = i + 1;
+                    if end < bytes.len() && bytes[end] == b'\n' {
+                        end += 1;
+                    }
+                    return Some((start, end));
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Merge `new_block` (a single `#[test]` function + its doc comments) into
+/// `existing` file content. Replaces any prior block with the same test-fn
+/// name, otherwise appends to the end of the file.
+fn merge_test_block(existing: &str, new_block: &str, lang: &str) -> String {
+    if lang != "rust" {
+        // Non-Rust languages don't have the same module structure; naive append.
+        let mut out = existing.trim_end().to_string();
+        out.push_str("\n\n");
+        out.push_str(new_block.trim());
+        out.push('\n');
+        return out;
+    }
+
+    let Some(new_fn_name) = extract_test_fn_name(new_block) else {
+        // Can't identify the incoming fn — append conservatively.
+        let mut out = existing.trim_end().to_string();
+        out.push_str("\n\n");
+        out.push_str(new_block.trim());
+        out.push('\n');
+        return out;
+    };
+
+    if let Some((start, end)) = find_test_block(existing, &new_fn_name) {
+        // Replace in place.
+        let mut out = String::with_capacity(existing.len() + new_block.len());
+        out.push_str(&existing[..start]);
+        out.push_str(new_block.trim());
+        out.push('\n');
+        out.push_str(&existing[end..]);
+        return out;
+    }
+
+    // Append to end of file.
+    let mut out = existing.trim_end().to_string();
+    out.push_str("\n\n");
+    out.push_str(new_block.trim());
+    out.push('\n');
+    out
 }
 
 /// Check if a test file compiles for the given language.

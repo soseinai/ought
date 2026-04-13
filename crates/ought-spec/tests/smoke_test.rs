@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use ought_spec::parser::Parser;
+use ought_spec::parser::{OughtMdParser, Parser};
 use ought_spec::types::*;
 
 /// Parse the actual parser.ought.md spec file from this repository.
@@ -12,7 +12,7 @@ fn parse_real_spec_file() {
         // Skip if the file isn't present in this context
         return;
     }
-    let spec = Parser::parse_file(&path).expect("failed to parse parser.ought.md");
+    let spec = OughtMdParser.parse_file(&path).expect("failed to parse parser.ought.md");
     assert_eq!(spec.name, "Parser");
     assert!(spec.metadata.context.is_some(), "should have context metadata");
     assert!(!spec.metadata.sources.is_empty(), "should have source metadata");

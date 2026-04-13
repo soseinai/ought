@@ -1,0 +1,16 @@
+[package]
+name = "ought-core"
+description = "Shared cross-cutting types for the ought workspace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+serde.workspace = true
+
+[lints]
+workspace = true

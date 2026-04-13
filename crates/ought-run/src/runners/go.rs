@@ -24,21 +24,22 @@ fn command_exists(cmd: &str) -> bool {
 }
 
 /// Convert a `ClauseId` like `auth::login::must_return_jwt` into the Go test
-/// function name: `Testauth_login_must_return_jwt`. The mapping is lossy
-/// (section boundaries are erased), so the runtime mapping back to a `ClauseId`
-/// relies on the `name_to_clause` HashMap built from the manifest;
-/// `test_name_to_clause_id` is only a best-effort fallback when that lookup misses.
+/// function name: `Testauth__login__must_return_jwt`. The `Test` prefix is
+/// required by Go's test discovery; sections are separated with double
+/// underscore so the mapping is reversible by `test_name_to_clause_id`.
 ///
 /// Note: Go convention is CamelCase, but since generated code controls the name
 /// we use snake_case after the `Test` prefix for consistency with other runners.
 fn clause_id_to_test_name(clause_id: &ClauseId) -> String {
-    format!("Test{}", clause_id.0.replace("::", "_"))
+    format!("Test{}", clause_id.0.replace("::", "__"))
 }
 
 /// Best-effort fallback: wrap the test name as a `ClauseId` directly. This is only
-/// used when the HashMap lookup fails; the mangling above is not reversible.
+/// used when the HashMap lookup fails; strips the `Test` prefix and maps
+/// `__` → `::` to mirror `clause_id_to_test_name`.
 fn test_name_to_clause_id(test_name: &str) -> ClauseId {
-    ClauseId(test_name.to_string())
+    let stripped = test_name.strip_prefix("Test").unwrap_or(test_name);
+    ClauseId(stripped.replace("__", "::"))
 }
 
 /// Parse `go test -v` output.

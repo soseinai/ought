@@ -3,10 +3,11 @@ use std::process;
 
 use clap::{Parser, Subcommand};
 
+use ought_cli::config::Config;
 use ought_gen::manifest::Manifest;
 use ought_report::types::{ColorChoice as ReportColor, ReportOptions};
 use ought_run::runners;
-use ought_spec::{Config, SpecGraph};
+use ought_spec::SpecGraph;
 
 
 #[derive(Parser)]
@@ -225,20 +226,23 @@ fn load_config(config_path: &Option<PathBuf>) -> anyhow::Result<(PathBuf, Config
     }
 }
 
-/// Load and parse all specs from config roots.
-fn load_specs(config: &Config, config_path: &std::path::Path) -> anyhow::Result<SpecGraph> {
+/// Resolve each configured spec root against the project root (the directory
+/// containing `ought.toml`).
+fn resolve_spec_roots(config: &Config, config_path: &std::path::Path) -> Vec<PathBuf> {
     let config_dir = config_path
         .parent()
-        .unwrap_or(std::path::Path::new("."))
-        .to_path_buf();
-
-    let roots: Vec<PathBuf> = config
+        .unwrap_or(std::path::Path::new("."));
+    config
         .specs
         .roots
         .iter()
         .map(|r| config_dir.join(r))
-        .collect();
+        .collect()
+}
 
+/// Load and parse all specs from config roots.
+fn load_specs(config: &Config, config_path: &std::path::Path) -> anyhow::Result<SpecGraph> {
+    let roots = resolve_spec_roots(config, config_path);
     SpecGraph::from_roots(&roots).map_err(|errors| {
         let messages: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
         anyhow::anyhow!("spec parse errors:\n  {}", messages.join("\n  "))
@@ -797,7 +801,7 @@ fn cmd_generate(cli: &Cli, args: &GenerateArgs) -> anyhow::Result<()> {
                 total_clauses
             );
 
-            let orchestrator = ought_gen::Orchestrator::new(&config, cli.verbose);
+            let orchestrator = ought_gen::Orchestrator::new(&config.generator, cli.verbose);
             let reports = orchestrator.run(assignments)?;
 
             for report in &reports {
@@ -1681,8 +1685,20 @@ fn main() -> anyhow::Result<()> {
         Command::Bisect(args) => cmd_bisect(&cli, args),
         Command::Watch => cmd_watch(&cli),
         Command::View { port, no_open } => {
+            let (config_path, config) = load_config(&cli.config)?;
+            let project_root = config_path
+                .parent()
+                .unwrap_or(std::path::Path::new("."))
+                .to_path_buf();
+            let spec_roots = resolve_spec_roots(&config, &config_path);
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(ought_server::serve(cli.config.as_deref(), *port, !*no_open))
+            rt.block_on(ought_server::serve(
+                project_root,
+                spec_roots,
+                config.runner.clone(),
+                *port,
+                !*no_open,
+            ))
         }
         Command::Mcp(args) => match &args.command {
             McpCommand::Serve {
@@ -1700,8 +1716,17 @@ fn main() -> anyhow::Result<()> {
                     tokio::runtime::Runtime::new()?.block_on(server.serve_stdio())
                 }
                 McpModeArg::Standard => {
-                    let (config_path, _config) = load_config(&cli.config)?;
-                    let server = ought_mcp::server::McpServer::new(config_path);
+                    let (config_path, config) = load_config(&cli.config)?;
+                    let project_root = config_path
+                        .parent()
+                        .unwrap_or(std::path::Path::new("."))
+                        .to_path_buf();
+                    let spec_roots = resolve_spec_roots(&config, &config_path);
+                    let server = ought_mcp::server::McpServer::new(
+                        project_root,
+                        spec_roots,
+                        config.runner.clone(),
+                    );
                     let server_transport = match transport {
                         TransportArg::Stdio => ought_mcp::server::Transport::Stdio,
                         TransportArg::Sse => ought_mcp::server::Transport::Sse {

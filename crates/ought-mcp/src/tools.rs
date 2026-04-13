@@ -1,10 +1,12 @@
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use chrono::Utc;
 use serde_json::Value;
 
-use ought_spec::{ClauseId, Config, Parser, SpecGraph};
+use ought_run::RunnerConfig;
+use ought_spec::{ClauseId, OughtMdParser, Parser, SpecGraph};
 
 use crate::{collect_clauses, count_clauses};
 
@@ -12,40 +14,35 @@ use crate::{collect_clauses, count_clauses};
 ///
 /// Each tool maps to an `ought` CLI command and returns structured JSON.
 pub struct ToolHandler {
-    config_path: PathBuf,
+    /// Project root; relative paths in `spec_roots`, runner `test_dir`s, and
+    /// internal artifact locations (manifest) are resolved against this.
+    project_root: PathBuf,
+    /// Spec roots resolved by the caller (may be absolute or
+    /// project-root-relative).
+    spec_roots: Vec<PathBuf>,
+    /// Runner configuration keyed by runner name (e.g. `rust`, `python`).
+    runners: HashMap<String, RunnerConfig>,
 }
 
 impl ToolHandler {
-    pub fn new(config_path: PathBuf) -> Self {
-        Self { config_path }
+    pub fn new(
+        project_root: PathBuf,
+        spec_roots: Vec<PathBuf>,
+        runners: HashMap<String, RunnerConfig>,
+    ) -> Self {
+        Self { project_root, spec_roots, runners }
     }
 
-    /// Load config from the stored path.
-    fn load_config(&self) -> anyhow::Result<Config> {
-        Config::load(&self.config_path)
-    }
-
-    /// Resolve spec roots relative to the config file's parent directory.
-    fn resolve_roots(&self, config: &Config) -> Vec<PathBuf> {
-        let base = self
-            .config_path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."));
-        config
-            .specs
-            .roots
-            .iter()
-            .map(|r| base.join(r))
-            .collect()
-    }
-
-    /// Load the spec graph from config.
-    fn load_specs(&self, config: &Config) -> anyhow::Result<SpecGraph> {
-        let roots = self.resolve_roots(config);
-        SpecGraph::from_roots(&roots).map_err(|errors| {
+    /// Load the spec graph from the configured roots.
+    fn load_specs(&self) -> anyhow::Result<SpecGraph> {
+        SpecGraph::from_roots(&self.spec_roots).map_err(|errors| {
             let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
             anyhow::anyhow!("spec parse errors:\n{}", msgs.join("\n"))
         })
+    }
+
+    fn base(&self) -> &Path {
+        &self.project_root
     }
 
     /// Wrap a tool result with timing metadata.
@@ -65,21 +62,16 @@ impl ToolHandler {
 
     pub fn ought_run(&self, _args: Value) -> anyhow::Result<Value> {
         let start = Instant::now();
-        let config = self.load_config()?;
-        let specs = self.load_specs(&config)?;
+        let specs = self.load_specs()?;
 
         // Collect all generated tests from the manifest output directory
         // and run them with the configured runner.
         let mut all_results = Vec::new();
 
-        for (runner_name, runner_config) in &config.runner {
+        for (runner_name, runner_config) in &self.runners {
             let runner = ought_run::runners::from_name(runner_name)?;
             // Collect generated test files (we look in the runner's test_dir)
-            let base = self
-                .config_path
-                .parent()
-                .unwrap_or_else(|| std::path::Path::new("."));
-            let test_dir = base.join(&runner_config.test_dir);
+            let test_dir = self.base().join(&runner_config.test_dir);
 
             // For now, run with empty tests list (the runner discovers tests in test_dir)
             let result = runner.run(&[], &test_dir)?;
@@ -119,13 +111,7 @@ impl ToolHandler {
 
     pub fn ought_generate(&self, args: Value) -> anyhow::Result<Value> {
         let start = Instant::now();
-        let config = self.load_config()?;
-        let specs = self.load_specs(&config)?;
-
-        let base = self
-            .config_path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."));
+        let specs = self.load_specs()?;
 
         let force = args
             .get("force")
@@ -133,7 +119,7 @@ impl ToolHandler {
             .unwrap_or(false);
 
         // Load manifest
-        let manifest_path = base.join("ought/ought-gen/manifest.toml");
+        let manifest_path = self.base().join("ought/ought-gen/manifest.toml");
         let manifest = ought_gen::Manifest::load(&manifest_path)?;
 
         // Count stale clauses (generation is now done via the agent/orchestrator)
@@ -159,8 +145,6 @@ impl ToolHandler {
 
     pub fn ought_check(&self, args: Value) -> anyhow::Result<Value> {
         let start = Instant::now();
-        let config = self.load_config()?;
-        let roots = self.resolve_roots(&config);
 
         let filter_spec = args
             .get("spec")
@@ -170,7 +154,7 @@ impl ToolHandler {
         let mut results = Vec::new();
         let mut total_errors = 0usize;
 
-        for root in &roots {
+        for root in &self.spec_roots {
             let files = collect_ought_files(root);
             for file in files {
                 // Apply filter if given
@@ -184,7 +168,7 @@ impl ToolHandler {
                     }
                 }
 
-                match Parser::parse_file(&file) {
+                match OughtMdParser.parse_file(&file) {
                     Ok(spec) => {
                         let clause_count = count_clauses(&spec.sections);
                         results.push(serde_json::json!({
@@ -223,8 +207,7 @@ impl ToolHandler {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("missing required argument: clause_id"))?;
 
-        let config = self.load_config()?;
-        let specs = self.load_specs(&config)?;
+        let specs = self.load_specs()?;
 
         // Find the clause across all specs
         let target_id = ClauseId(clause_id_str.to_string());
@@ -257,14 +240,9 @@ impl ToolHandler {
 
     pub fn ought_status(&self, _args: Value) -> anyhow::Result<Value> {
         let start = Instant::now();
-        let config = self.load_config()?;
-        let specs = self.load_specs(&config)?;
+        let specs = self.load_specs()?;
 
-        let base = self
-            .config_path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."));
-        let manifest_path = base.join("ought/ought-gen/manifest.toml");
+        let manifest_path = self.base().join("ought/ought-gen/manifest.toml");
         let manifest = ought_gen::Manifest::load(&manifest_path)?;
 
         let mut total_clauses = 0usize;
@@ -308,8 +286,7 @@ impl ToolHandler {
 
     pub fn ought_survey(&self, args: Value) -> anyhow::Result<Value> {
         let start = Instant::now();
-        let config = self.load_config()?;
-        let specs = self.load_specs(&config)?;
+        let specs = self.load_specs()?;
 
         let paths: Vec<PathBuf> = args
             .get("paths")
@@ -347,8 +324,7 @@ impl ToolHandler {
 
     pub fn ought_audit(&self, _args: Value) -> anyhow::Result<Value> {
         let start = Instant::now();
-        let config = self.load_config()?;
-        let specs = self.load_specs(&config)?;
+        let specs = self.load_specs()?;
 
         let result = ought_analysis::audit::audit(&specs)?;
 
@@ -380,8 +356,7 @@ impl ToolHandler {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("missing required argument: clause_id"))?;
 
-        let config = self.load_config()?;
-        let specs = self.load_specs(&config)?;
+        let specs = self.load_specs()?;
 
         let clause_id = ClauseId(clause_id_str.to_string());
 
@@ -417,8 +392,7 @@ impl ToolHandler {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("missing required argument: clause_id"))?;
 
-        let config = self.load_config()?;
-        let specs = self.load_specs(&config)?;
+        let specs = self.load_specs()?;
 
         let clause_id = ClauseId(clause_id_str.to_string());
         let range = args
@@ -427,8 +401,8 @@ impl ToolHandler {
             .map(|s| s.to_string());
 
         // Get the first available runner
-        let (runner_name, _) = config
-            .runner
+        let (runner_name, _) = self
+            .runners
             .iter()
             .next()
             .ok_or_else(|| anyhow::anyhow!("no runner configured"))?;
