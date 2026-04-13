@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use crate::parser::{OughtMdParser, Parser};
 use crate::types::{ParseError, Spec};
@@ -161,6 +161,25 @@ fn collect_ought_files(dir: &Path) -> Vec<PathBuf> {
     results
 }
 
+/// Collapse `.` and `..` components without touching the filesystem so a
+/// path like `ought/analysis/../engine/parser.ought.md` compares equal to the
+/// `ought/engine/parser.ought.md` produced by directory traversal.
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
 /// Resolve every `requires:` reference in `specs` to a target index.
 ///
 /// Returns `(edges, errors)` where each edge is `(dependent_idx, dependency_idx)`
@@ -181,7 +200,7 @@ fn resolve_references(specs: &[Spec]) -> (Vec<(usize, usize)>, Vec<ParseError>) 
             // fall back to a raw lookup for refs written as absolute or
             // already-root-relative paths.
             let base_dir = spec.source_path.parent().unwrap_or(Path::new(""));
-            let resolved = base_dir.join(&req.path);
+            let resolved = normalize_path(&base_dir.join(&req.path));
 
             match path_to_idx
                 .get(&resolved)
