@@ -69,9 +69,10 @@ impl ToolHandler {
         let mut all_results = Vec::new();
 
         for (runner_name, runner_config) in &self.runners {
-            let runner = ought_run::runners::from_name(runner_name)?;
-            // Collect generated test files (we look in the runner's test_dir)
-            let test_dir = self.base().join(&runner_config.test_dir);
+            let runner = ought_run::runners::from_config(runner_name, runner_config, self.base())?;
+            // Collect generated test files (we look in the runner's test_dir).
+            let resolved = runner_config.resolve(runner_name)?;
+            let test_dir = self.base().join(&resolved.test_dir);
 
             // For now, run with empty tests list (the runner discovers tests in test_dir)
             let result = runner.run(&[], &test_dir)?;
@@ -401,12 +402,12 @@ impl ToolHandler {
             .map(|s| s.to_string());
 
         // Get the first available runner
-        let (runner_name, _) = self
+        let (runner_name, runner_cfg) = self
             .runners
             .iter()
             .next()
             .ok_or_else(|| anyhow::anyhow!("no runner configured"))?;
-        let runner = ought_run::runners::from_name(runner_name)?;
+        let runner = ought_run::runners::from_config(runner_name, runner_cfg, self.base())?;
 
         let options = ought_analysis::bisect::BisectOptions {
             range,

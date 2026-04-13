@@ -41,7 +41,12 @@ impl ProofIndex {
 
         for (runner_name, runner_cfg) in runners {
             let language = runner_language(runner_name);
-            let test_dir = project_root.join(&runner_cfg.test_dir);
+            // `test_dir` is optional on `RunnerConfig`; skip runners that
+            // don't pin one (they can't produce proofs without it).
+            let Some(relative) = runner_cfg.test_dir.as_ref() else {
+                continue;
+            };
+            let test_dir = project_root.join(relative);
             if !test_dir.is_dir() {
                 continue;
             }

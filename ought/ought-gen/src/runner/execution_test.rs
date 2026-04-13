@@ -348,27 +348,33 @@ fn test_runner__execution__must_not_modify_generated_test_files_during_execution
 /// MUST invoke the configured test command from `ought.toml` for each language runner
 #[test]
 fn test_runner__execution__must_invoke_the_configured_test_command_from_ought_toml_for_each() {
-    // Verify the runner factory recognises every supported language key and returns
-    // a runner whose name matches the key used in ought.toml [runner.<name>] tables.
+    use std::path::{Path, PathBuf};
+
+    // Verify that every preset name (and the `ts` alias) resolves into a
+    // runner via `from_config`, and that the runner's `name()` matches the
+    // section key.
     let cases = [
         ("rust",       "rust"),
         ("python",     "python"),
         ("typescript", "typescript"),
-        ("ts",         "typescript"),   // alias
+        ("ts",         "ts"),   // alias: reports its section name
         ("go",         "go"),
     ];
     for (input, expected_name) in cases {
-        let runner = ought_run::runners::from_name(input)
-            .unwrap_or_else(|e| panic!("from_name({input:?}) must succeed: {e}"));
+        let cfg = RunnerConfig {
+            test_dir: Some(PathBuf::from("ought/ought-gen/")),
+            ..Default::default()
+        };
+        let runner = ought_run::runners::from_config(input, &cfg, Path::new("."))
+            .unwrap_or_else(|e| panic!("from_config({input:?}) must succeed: {e}"));
         assert_eq!(
             runner.name(), expected_name,
             "runner for ought.toml key '{input}' must report name '{expected_name}'"
         );
     }
 
-    // Verify that the runner sub-config preserves the configured command
-    // strings when deserialized from the `[runner.*]` portion of `ought.toml`.
-    // (The aggregate config struct lives in `ought-cli` and is tested there.)
+    // Verify that an explicit command override in `[runner.*]` round-trips
+    // through config parsing and is honoured by the resolver.
     #[derive(serde::Deserialize)]
     struct RunnerOnly {
         runner: HashMap<String, RunnerConfig>,
@@ -376,39 +382,45 @@ fn test_runner__execution__must_invoke_the_configured_test_command_from_ought_to
 
     let toml = r#"
 [runner.rust]
-command = "cargo test"
 test_dir = "ought/ought-gen/"
 
 [runner.python]
-command = "pytest"
 test_dir = "ought/ought-gen/"
 
 [runner.typescript]
-command = "npx jest --runInBand"
+command = "npx jest --runInBand {test_dir}"
 test_dir = "ought/ought-gen/"
+format = "junit-xml"
+file_extensions = ["ts"]
 
 [runner.go]
-command = "go test ./..."
 test_dir = "ought/ought-gen/"
 "#;
     let parsed: RunnerOnly = toml::from_str(toml)
         .expect("ought.toml must load without error");
 
-    let expected_commands = [
-        ("rust",       "cargo test"),
-        ("python",     "pytest"),
-        ("typescript", "npx jest --runInBand"),
-        ("go",         "go test ./..."),
-    ];
-    for (lang, expected_cmd) in expected_commands {
+    // Preset-only entries have no explicit command — they resolve via presets.
+    for lang in ["rust", "python", "go"] {
         let cfg = parsed.runner.get(lang)
-            .unwrap_or_else(|| panic!("runner.{lang} config must be present in ought.toml"));
-        assert_eq!(
-            cfg.command, expected_cmd,
-            "runner.{lang}.command must equal the value from ought.toml; \
-             expected {expected_cmd:?}, got {:?}", cfg.command
-        );
+            .unwrap_or_else(|| panic!("runner.{lang} config must be present"));
+        let resolved = cfg.resolve(lang)
+            .unwrap_or_else(|e| panic!("runner.{lang} must resolve via preset: {e}"));
+        assert!(!resolved.command.is_empty(),
+            "runner.{lang} resolved command must be non-empty");
     }
+
+    // Typescript provides an explicit command override.
+    let ts_cfg = parsed.runner.get("typescript").unwrap();
+    assert_eq!(
+        ts_cfg.command.as_deref(),
+        Some("npx jest --runInBand {test_dir}"),
+        "runner.typescript.command must round-trip through config parsing"
+    );
+    let ts_resolved = ts_cfg.resolve("typescript").unwrap();
+    assert_eq!(
+        ts_resolved.command, "npx jest --runInBand {test_dir}",
+        "explicit command must override the preset's default"
+    );
 }
 
 

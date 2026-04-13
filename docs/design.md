@@ -271,10 +271,31 @@ Tests are self-contained (no cross-test dependencies), include the original clau
 
 Delegates execution to language-specific test harnesses. Does not implement its own test execution.
 
-- Ships with runners for Rust, Python, JavaScript/TypeScript, and Go.
-- Custom runners configurable in `ought.toml`.
+Internally there is **one** runner — `CliRunner` — driven entirely by `[runner.<name>]` in `ought.toml`. Built-in **presets** for `rust`, `python`, `typescript`, and `go` ship pre-filled defaults so users only need to pin a `test_dir`; for any other test harness a user writes the command and format themselves.
 
-Each runner collects per-test results and maps them back to clause identifiers. How it collects results is an implementation detail per language — JUnit XML output, structured JSON, harness APIs, or stdout parsing as a last resort. For OTHERWISE chains, the runner executes the parent first, then walks the chain only if the parent fails, stopping at the first passing fallback. For MUST ALWAYS, it captures iteration count. For MUST BY, it captures measured duration.
+```toml
+# Preset (zero-config):
+[runner.python]
+test_dir = "ought/ought-gen/"
+
+# Fully custom:
+[runner.ruby]
+command = "bundle exec rspec --format=junit --out={junit_path}"
+test_dir = "spec/ought/"
+format = "junit-xml"
+file_extensions = ["rb"]
+```
+
+Per-test pass/fail is captured via one of four formats:
+
+- `junit-xml` — JUnit XML emitted by the harness (pytest `--junit-xml`, jest-junit, gotestsum, nextest …)
+- `tap` — TAP 13 stream
+- `cargo-test` — `cargo test`'s default stdout (used by the Rust preset so no third-party reporter is required)
+- `ought-json` — native `RunResult` JSON; the escape hatch for custom runners
+
+Test function names are mapped back to clause identifiers via the reversible `__` ↔ `::` convention (e.g. `test_auth__login__must_return_jwt` ↔ `auth::login::must_return_jwt`).
+
+For OTHERWISE chains, the runner executes the parent first, then walks the chain only if the parent fails, stopping at the first passing fallback. For MUST ALWAYS, it captures iteration count. For MUST BY, it captures measured duration.
 
 ### Reporter
 
@@ -490,12 +511,14 @@ model = "claude-sonnet-4-6"
 must_by_multiplier = 1.5     # CI timing tolerance for MUST BY
 
 [runner.rust]
-command = "cargo test"
 test_dir = "ought/ought-gen/"
+# Built-in preset expands to: command = "cargo test --no-fail-fast ...",
+# format = "cargo-test", file_extensions = ["rs"]. Override any field to
+# customize (e.g. to use `cargo nextest run` and format = "junit-xml").
 
 [runner.python]
-command = "pytest"
 test_dir = "ought/ought-gen/"
+# Preset: pytest --junit-xml={junit_path} -v {test_dir}, format = "junit-xml"
 
 [mcp]
 enabled = true
