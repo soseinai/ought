@@ -8,7 +8,7 @@ requires: [parser](../engine/parser.ought.md), [generator](../engine/generator.o
 
 ## Survey
 
-`ought survey [path]` — discovers behaviors in source code that are not covered by any spec.
+`ought analyze survey [path]` — discovers behaviors in source code that are not covered by any spec.
 
 - **MUST** read source files from the given path (or project source roots if no path given)
 - **MUST** read all existing spec files to know what is already covered
@@ -22,7 +22,7 @@ requires: [parser](../engine/parser.ought.md), [generator](../engine/generator.o
 
 ## Audit
 
-`ought audit` — cross-spec analysis for contradictions, gaps, and coherence issues.
+`ought analyze audit` — cross-spec analysis for contradictions, gaps, and coherence issues.
 
 - **MUST** read all spec files and their cross-references
 - **MUST** use the LLM to identify contradictions between clauses (across files or within)
@@ -39,7 +39,7 @@ requires: [parser](../engine/parser.ought.md), [generator](../engine/generator.o
 
 ## Blame
 
-`ought blame <clause>` — explains why a clause is failing by correlating with source changes.
+`ought debug blame <clause>` — explains why a clause is failing by correlating with source changes.
 
 - **MUST** accept a clause identifier (e.g. `auth::login::must_return_401`)
 - **MUST** retrieve the clause, its generated test, and the failure output
@@ -54,7 +54,7 @@ requires: [parser](../engine/parser.ought.md), [generator](../engine/generator.o
 
 ## Bisect
 
-`ought bisect <clause>` — automated binary search through git history to find the breaking commit.
+`ought debug bisect <clause>` — automated binary search through git history to find the breaking commit.
 
 - **MUST** accept a clause identifier
 - **MUST** perform a git-bisect-style binary search: checkout commit, generate test for clause, run it, narrow range
@@ -66,4 +66,4 @@ requires: [parser](../engine/parser.ought.md), [generator](../engine/generator.o
 - **SHOULD** support `--range <from>..<to>` to limit the search space
 - **GIVEN** the bisect is interrupted (SIGINT, crash):
   - **MUST** restore the working tree to the original branch
-  - **SHOULD** save progress so `ought bisect --continue` can resume
+  - **SHOULD** save progress so `ought debug bisect --continue` can resume

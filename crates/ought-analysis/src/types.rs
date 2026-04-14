@@ -5,7 +5,7 @@ use ought_spec::{ClauseId, Keyword};
 
 // -- Survey --
 
-/// Results from `ought survey`.
+/// Results from `ought analyze survey`.
 #[derive(Debug, Clone)]
 pub struct SurveyResult {
     pub uncovered: Vec<UncoveredBehavior>,
@@ -24,7 +24,7 @@ pub struct UncoveredBehavior {
 
 // -- Audit --
 
-/// Results from `ought audit`.
+/// Results from `ought analyze audit`.
 #[derive(Debug, Clone)]
 pub struct AuditResult {
     pub findings: Vec<AuditFinding>,
@@ -50,7 +50,7 @@ pub enum AuditFindingKind {
 
 // -- Blame --
 
-/// Results from `ought blame`.
+/// Results from `ought debug blame`.
 #[derive(Debug, Clone)]
 pub struct BlameResult {
     pub clause_id: ClauseId,
@@ -72,7 +72,7 @@ pub struct CommitInfo {
 
 // -- Bisect --
 
-/// Results from `ought bisect`.
+/// Results from `ought debug bisect`.
 #[derive(Debug, Clone)]
 pub struct BisectResult {
     pub clause_id: ClauseId,

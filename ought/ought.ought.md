@@ -68,10 +68,10 @@ Details: [Reporter](./engine/reporter.ought.md)
 
 Beyond generating and running tests, ought uses LLMs to reason about the relationships between specs, source code, and results.
 
-- **MUST** support surveying source code to discover behaviors not covered by any spec (`ought survey`)
-- **MUST** support auditing specs for contradictions, gaps, and coherence issues (`ought audit`)
-- **MUST** support blaming a failure on a specific source change with a causal narrative (`ought blame`)
-- **SHOULD** support bisecting git history to find the exact commit that broke a clause (`ought bisect`)
+- **MUST** support surveying source code to discover behaviors not covered by any spec (`ought analyze survey`)
+- **MUST** support auditing specs for contradictions, gaps, and coherence issues (`ought analyze audit`)
+- **MUST** support blaming a failure on a specific source change with a causal narrative (`ought debug blame`)
+- **SHOULD** support bisecting git history to find the exact commit that broke a clause (`ought debug bisect`)
 
 Details: [Analysis](./analysis/analysis.ought.md)
 

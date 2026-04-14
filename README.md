@@ -221,10 +221,10 @@ Specs are hierarchical. A top-level spec captures broad product-level requiremen
 | `ought check` | Validate spec syntax only (no LLM, no execution) |
 | `ought inspect <clause>` | Show generated test code for a clause |
 | `ought diff` | Show pending generation changes |
-| `ought survey [path]` | Discover source behaviors not covered by any spec |
-| `ought audit` | Cross-spec coherence analysis (contradictions, gaps) |
-| `ought blame <clause>` | Explain a failure with git history context |
-| `ought bisect <clause>` | Find the exact commit that broke a clause |
+| `ought analyze survey [path]` | Discover source behaviors not covered by any spec |
+| `ought analyze audit` | Cross-spec coherence analysis (contradictions, gaps) |
+| `ought debug blame <clause>` | Explain a failure with git history context |
+| `ought debug bisect <clause>` | Find the exact commit that broke a clause |
 | `ought watch` | Re-run on file changes |
 | `ought mcp serve` | Start the MCP server |
 | `ought mcp install` | Register with Claude Code, Codex, OpenCode |
@@ -255,13 +255,13 @@ Custom providers are supported by specifying an arbitrary executable.
 
 Beyond test generation and execution, ought uses LLMs to reason about relationships between specs, source code, and results.
 
-**`ought survey [path]`** -- Scans source code and identifies behaviors not covered by any spec. Suggests concrete clauses with appropriate keywords. Never auto-adds clauses without user confirmation.
+**`ought analyze survey [path]`** -- Scans source code and identifies behaviors not covered by any spec. Suggests concrete clauses with appropriate keywords. Never auto-adds clauses without user confirmation.
 
-**`ought audit`** -- Checks specs for contradictions (conflicting MUSTs), deadline conflicts (a MUST BY calling a sub-operation with a longer deadline), MUST ALWAYS invariant conflicts, gaps (e.g., login and refresh specified but no logout), and missing OTHERWISE chains on network-dependent operations.
+**`ought analyze audit`** -- Checks specs for contradictions (conflicting MUSTs), deadline conflicts (a MUST BY calling a sub-operation with a longer deadline), MUST ALWAYS invariant conflicts, gaps (e.g., login and refresh specified but no logout), and missing OTHERWISE chains on network-dependent operations.
 
-**`ought blame <clause>`** -- Correlates a failing clause with git history to build a causal narrative: what commit broke it, who authored it, and what the change was trying to do.
+**`ought debug blame <clause>`** -- Correlates a failing clause with git history to build a causal narrative: what commit broke it, who authored it, and what the change was trying to do.
 
-**`ought bisect <clause>`** -- Automated binary search through git history to find the exact breaking commit. Like `git bisect` but targeted at a specific clause. Always restores the working tree afterward.
+**`ought debug bisect <clause>`** -- Automated binary search through git history to find the exact breaking commit. Like `git bisect` but targeted at a specific clause. Always restores the working tree afterward.
 
 ## MCP Server
 

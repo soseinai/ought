@@ -57,17 +57,11 @@ enum Command {
     /// Show diff between current and pending generated tests.
     Diff,
 
-    /// Discover source behaviors not covered by any spec.
-    Survey(SurveyArgs),
+    /// Analyze specs for coherence and coverage.
+    Analyze(AnalyzeArgs),
 
-    /// Analyze specs for contradictions, gaps, and coherence issues.
-    Audit,
-
-    /// Explain why a clause is failing using git history.
-    Blame(BlameArgs),
-
-    /// Binary search git history to find the breaking commit.
-    Bisect(BisectArgs),
+    /// Investigate failing clauses with git history.
+    Debug(DebugArgs),
 
     /// Watch for file changes and re-run affected specs.
     Watch,
@@ -141,6 +135,36 @@ struct BisectArgs {
     /// Regenerate tests at each commit instead of using current manifest.
     #[arg(long)]
     regenerate: bool,
+}
+
+#[derive(clap::Args)]
+struct AnalyzeArgs {
+    #[command(subcommand)]
+    command: AnalyzeCommand,
+}
+
+#[derive(Subcommand)]
+enum AnalyzeCommand {
+    /// Analyze specs for contradictions, gaps, and coherence issues.
+    Audit,
+
+    /// Discover source behaviors not covered by any spec.
+    Survey(SurveyArgs),
+}
+
+#[derive(clap::Args)]
+struct DebugArgs {
+    #[command(subcommand)]
+    command: DebugCommand,
+}
+
+#[derive(Subcommand)]
+enum DebugCommand {
+    /// Explain why a clause is failing using git history.
+    Blame(BlameArgs),
+
+    /// Binary search git history to find the breaking commit.
+    Bisect(BisectArgs),
 }
 
 #[derive(clap::Args)]
@@ -219,10 +243,14 @@ fn main() -> anyhow::Result<()> {
         Command::Check => commands::check::run(&cli),
         Command::Inspect(args) => commands::inspect::run(&cli, args),
         Command::Diff => commands::diff::run(&cli),
-        Command::Survey(args) => commands::survey::run(&cli, args),
-        Command::Audit => commands::audit::run(&cli),
-        Command::Blame(args) => commands::blame::run(&cli, args),
-        Command::Bisect(args) => commands::bisect::run(&cli, args),
+        Command::Analyze(args) => match &args.command {
+            AnalyzeCommand::Audit => commands::audit::run(&cli),
+            AnalyzeCommand::Survey(args) => commands::survey::run(&cli, args),
+        },
+        Command::Debug(args) => match &args.command {
+            DebugCommand::Blame(args) => commands::blame::run(&cli, args),
+            DebugCommand::Bisect(args) => commands::bisect::run(&cli, args),
+        },
         Command::Watch => commands::watch::run(&cli),
         Command::View { port, no_open } => commands::view::run(&cli, *port, *no_open),
         Command::Mcp(args) => commands::mcp::run(&cli, &args.command),

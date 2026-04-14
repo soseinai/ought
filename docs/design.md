@@ -40,7 +40,7 @@ The spec language is grounded in deontic logic — the formal logic of obligatio
 
 ### Kant's "Ought Implies Can"
 
-If you're obligated to do something, it must be possible. This maps directly to spec satisfiability checking in `ought audit` — detect contradictory MUSTs, deadline conflicts, and invariants that can't simultaneously hold.
+If you're obligated to do something, it must be possible. This maps directly to spec satisfiability checking in `ought analyze audit` — detect contradictory MUSTs, deadline conflicts, and invariants that can't simultaneously hold.
 
 ## Spec Format: `.ought.md`
 
@@ -376,12 +376,12 @@ A second LLM pass reviews whether the generated test actually validates the clau
 
 Grades A through F. Explanations for anything below B. Only activated with `--grade`.
 
-### Survey — `ought survey [path]`
+### Survey — `ought analyze survey [path]`
 
 Inverts the flow. Instead of spec-to-tests, goes code-to-gaps:
 
 ```
- ought survey src/auth/
+ ought analyze survey src/auth/
 
  Discovered behaviors not covered by any spec:
    src/auth/handler.rs
@@ -397,12 +397,12 @@ Inverts the flow. Instead of spec-to-tests, goes code-to-gaps:
 
 Never auto-adds clauses without user confirmation.
 
-### Audit — `ought audit`
+### Audit — `ought analyze audit`
 
 Cross-spec reasoning about coherence:
 
 ```
- ought audit
+ ought analyze audit
 
  Potential conflicts:
    auth.ought.md:14    SHOULD rate-limit to 5 req/min/ip
@@ -420,12 +420,12 @@ Cross-spec reasoning about coherence:
 
 Also detects: MUST BY deadline conflicts (operation calling sub-operation with a longer deadline), MUST ALWAYS invariant conflicts, contradictory obligations under overlapping GIVEN conditions, and missing OTHERWISE chains on network-dependent operations.
 
-### Blame — `ought blame <clause>`
+### Blame — `ought debug blame <clause>`
 
 Explains why a clause is failing by correlating with git history:
 
 ```
- ought blame auth::login::must_return_401
+ ought debug blame auth::login::must_return_401
 
  Timeline:
    ✓ Passing since: 2026-02-15 (42 days)
@@ -442,7 +442,7 @@ Explains why a clause is failing by correlating with git history:
    the From impl defaults to 500 for all auth variants.
 ```
 
-### Bisect — `ought bisect <clause>`
+### Bisect — `ought debug bisect <clause>`
 
 Automated binary search through git history to find the exact breaking commit. Like `git bisect` but targeted at a specific clause. Always restores the working tree to its original state. Supports `--range` to limit search scope and `--continue` to resume after interruption.
 
@@ -475,10 +475,10 @@ ought generate --check            # exit 1 if stale (CI gate)
 ought check                       # validate spec syntax only
 ought inspect <clause>            # show generated test code
 ought diff                        # show pending generation changes
-ought survey [path]               # discover uncovered source behaviors
-ought audit                       # cross-spec coherence analysis
-ought blame <clause>              # explain a failure with git context
-ought bisect <clause>             # find the breaking commit
+ought analyze survey [path]       # discover uncovered source behaviors
+ought analyze audit               # cross-spec coherence analysis
+ought debug blame <clause>        # explain a failure with git context
+ought debug bisect <clause>       # find the breaking commit
 ought watch                       # re-run on file changes
 ought mcp serve                   # start MCP server
 ought mcp install                 # register with Claude Code, Codex, OpenCode
