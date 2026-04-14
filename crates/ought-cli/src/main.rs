@@ -249,6 +249,50 @@ fn load_specs(config: &Config, config_path: &std::path::Path) -> anyhow::Result<
     })
 }
 
+/// The first configured runner's name, defaulting to "rust".
+fn primary_runner_name(config: &Config) -> String {
+    config.runner.keys().next().cloned().unwrap_or("rust".into())
+}
+
+/// The first configured runner's `test_dir`, resolved against the config
+/// directory. Falls back to `ought/ought-gen` when neither user config nor
+/// preset supplies one — this preserves the behaviour of the subcommands
+/// (`generate`, `inspect`, `diff`) that only need a path to locate generated
+/// files and shouldn't hard-fail when the runner isn't fully configured yet.
+fn primary_test_dir(config: &Config, config_path: &std::path::Path) -> PathBuf {
+    let config_dir = config_path.parent().unwrap_or(std::path::Path::new("."));
+    config
+        .runner
+        .values()
+        .next()
+        .and_then(|r| r.test_dir.as_ref())
+        .map(|td| config_dir.join(td))
+        .unwrap_or_else(|| config_dir.join("ought/ought-gen"))
+}
+
+/// Resolve the primary runner for commands that execute tests.
+///
+/// Returns `(runner_name, runner_box, resolved_config, abs_test_dir)`.
+/// Errors if the user hasn't provided enough configuration to resolve a
+/// runner (no preset match and missing `command` / `format` / `test_dir`).
+fn resolve_primary_runner(
+    config: &Config,
+    config_path: &std::path::Path,
+) -> anyhow::Result<(
+    String,
+    Box<dyn ought_run::Runner>,
+    ought_run::ResolvedRunnerConfig,
+    PathBuf,
+)> {
+    let runner_name = primary_runner_name(config);
+    let runner_cfg = config.runner.get(&runner_name).cloned().unwrap_or_default();
+    let resolved = runner_cfg.resolve(&runner_name)?;
+    let config_dir = config_path.parent().unwrap_or(std::path::Path::new("."));
+    let test_dir = config_dir.join(&resolved.test_dir);
+    let runner = runners::from_config(&runner_name, &runner_cfg, config_dir)?;
+    Ok((runner_name, runner, resolved, test_dir))
+}
+
 /// A section group ready for agent-based generation.
 struct SectionGroup<'a> {
     section_path: String,
@@ -543,7 +587,8 @@ fn cmd_init() -> anyhow::Result<()> {
     // Create ought/ directory
     std::fs::create_dir_all("ought")?;
 
-    // Write ought.toml
+    // Write ought.toml. Using the preset name for the runner section auto-fills
+    // command, format, and file_extensions from a built-in preset.
     let config_content = format!(
         r#"[project]
 name = "{name}"
@@ -560,7 +605,6 @@ exclude = ["target/", "ought/ought-gen/"]
 provider = "anthropic"
 
 [runner.{lang}]
-command = "{cmd}"
 test_dir = "ought/ought-gen/"
 "#,
         name = std::env::current_dir()
@@ -568,13 +612,6 @@ test_dir = "ought/ought-gen/"
             .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
             .unwrap_or_else(|| "myproject".into()),
         lang = language,
-        cmd = match language {
-            "rust" => "cargo test",
-            "python" => "pytest",
-            "typescript" => "npx jest",
-            "go" => "go test ./...",
-            _ => "cargo test",
-        },
     );
     std::fs::write("ought.toml", config_content)?;
 
@@ -603,8 +640,7 @@ fn cmd_run(cli: &Cli, args: &RunArgs) -> anyhow::Result<()> {
     let specs = load_specs(&config, &config_path)?;
 
     // Find the first available runner
-    let runner_name = config.runner.keys().next().cloned().unwrap_or("rust".into());
-    let runner = runners::from_name(&runner_name)?;
+    let (runner_name, runner, resolved, test_dir) = resolve_primary_runner(&config, &config_path)?;
 
     if !runner.is_available() {
         anyhow::bail!(
@@ -613,20 +649,13 @@ fn cmd_run(cli: &Cli, args: &RunArgs) -> anyhow::Result<()> {
         );
     }
 
-    // Resolve test directory
-    let config_dir = config_path.parent().unwrap_or(std::path::Path::new("."));
-    let test_dir = config
-        .runner
-        .get(&runner_name)
-        .map(|r| config_dir.join(&r.test_dir))
-        .unwrap_or_else(|| config_dir.join("ought/ought-gen"));
-
     // Collect generated test files from the manifest
     let manifest_path = test_dir.join("manifest.toml");
     let _manifest = Manifest::load(&manifest_path).unwrap_or_default();
 
     // Build list of GeneratedTest from files in ought-gen
-    let generated_tests = collect_generated_tests(&test_dir, &runner_name)?;
+    let _ = runner_name; // currently unused downstream; kept for error messages / logging
+    let generated_tests = collect_generated_tests(&test_dir, &resolved.file_extensions)?;
 
     if generated_tests.is_empty() {
         eprintln!("No generated tests found. Run `ought generate` first.");
@@ -745,13 +774,7 @@ fn cmd_generate(cli: &Cli, args: &GenerateArgs) -> anyhow::Result<()> {
     let (config_path, config) = load_config(&cli.config)?;
     let specs = load_specs(&config, &config_path)?;
 
-    let config_dir = config_path.parent().unwrap_or(std::path::Path::new("."));
-    let test_dir = config
-        .runner
-        .values()
-        .next()
-        .map(|r| config_dir.join(&r.test_dir))
-        .unwrap_or_else(|| config_dir.join("ought/ought-gen"));
+    let test_dir = primary_test_dir(&config, &config_path);
 
     std::fs::create_dir_all(&test_dir)?;
 
@@ -892,13 +915,7 @@ fn count_pending_in_sections(sections: &[ought_spec::Section]) -> usize {
 
 fn cmd_inspect(cli: &Cli, args: &InspectArgs) -> anyhow::Result<()> {
     let (config_path, config) = load_config(&cli.config)?;
-    let config_dir = config_path.parent().unwrap_or(std::path::Path::new("."));
-    let test_dir = config
-        .runner
-        .values()
-        .next()
-        .map(|r| config_dir.join(&r.test_dir))
-        .unwrap_or_else(|| config_dir.join("ought/ought-gen"));
+    let test_dir = primary_test_dir(&config, &config_path);
 
     // Try to find the clause in the specs to show its text
     if let Ok(specs) = load_specs(&config, &config_path) {
@@ -1041,9 +1058,12 @@ fn find_clause_in_sections<'a>(
 }
 
 /// Collect GeneratedTest structs from files in the ought-gen directory.
+///
+/// `extensions` comes from the resolved `RunnerConfig.file_extensions` and
+/// controls which files are discovered as tests (e.g. `["rs"]`, `["ts", "js"]`).
 fn collect_generated_tests(
     test_dir: &std::path::Path,
-    _runner_name: &str,
+    extensions: &[String],
 ) -> anyhow::Result<Vec<ought_gen::GeneratedTest>> {
     let mut tests = Vec::new();
 
@@ -1054,22 +1074,19 @@ fn collect_generated_tests(
     fn walk(
         dir: &std::path::Path,
         root: &std::path::Path,
+        extensions: &[String],
         tests: &mut Vec<ought_gen::GeneratedTest>,
     ) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    walk(&path, root, tests);
+                    walk(&path, root, extensions, tests);
                 } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    let language = match ext {
-                        "rs" => ought_gen::generator::Language::Rust,
-                        "py" => ought_gen::generator::Language::Python,
-                        "ts" => ought_gen::generator::Language::TypeScript,
-                        "js" => ought_gen::generator::Language::JavaScript,
-                        "go" => ought_gen::generator::Language::Go,
-                        _ => continue,
-                    };
+                    if !extensions.iter().any(|e| e == ext) {
+                        continue;
+                    }
+                    let language = extension_to_language(ext);
 
                     // Derive clause ID from the relative path within the test dir.
                     // e.g. for test_dir/spec/section/must_do_something_test.rs
@@ -1105,21 +1122,29 @@ fn collect_generated_tests(
         }
     }
 
-    walk(test_dir, test_dir, &mut tests);
+    walk(test_dir, test_dir, extensions, &mut tests);
     Ok(tests)
+}
+
+/// Map a known file extension to an `ought_gen::generator::Language`. For
+/// extensions outside the built-in set we default to JavaScript — the value
+/// is advisory (it rides along in `GeneratedTest.language`) and downstream
+/// consumers only read it for display purposes.
+fn extension_to_language(ext: &str) -> ought_gen::generator::Language {
+    match ext {
+        "rs" => ought_gen::generator::Language::Rust,
+        "py" => ought_gen::generator::Language::Python,
+        "ts" => ought_gen::generator::Language::TypeScript,
+        "go" => ought_gen::generator::Language::Go,
+        _ => ought_gen::generator::Language::JavaScript,
+    }
 }
 
 fn cmd_diff(cli: &Cli) -> anyhow::Result<()> {
     let (config_path, config) = load_config(&cli.config)?;
     let specs = load_specs(&config, &config_path)?;
 
-    let config_dir = config_path.parent().unwrap_or(std::path::Path::new("."));
-    let test_dir = config
-        .runner
-        .values()
-        .next()
-        .map(|r| config_dir.join(&r.test_dir))
-        .unwrap_or_else(|| config_dir.join("ought/ought-gen"));
+    let test_dir = primary_test_dir(&config, &config_path);
 
     let manifest_path = test_dir.join("manifest.toml");
     let manifest = Manifest::load(&manifest_path).unwrap_or_default();
@@ -1269,30 +1294,21 @@ fn cmd_watch(cli: &Cli) -> anyhow::Result<()> {
             }
         }
 
-        let runner_name = config.runner.keys().next().cloned().unwrap_or("rust".into());
-        let runner = match runners::from_name(&runner_name) {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("error creating runner: {}", e);
-                return;
-            }
-        };
+        let (_runner_name, runner, resolved, test_dir) =
+            match resolve_primary_runner(config, config_path) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("error creating runner: {}", e);
+                    return;
+                }
+            };
 
         if !runner.is_available() {
             eprintln!("runner '{}' is not available", runner.name());
             return;
         }
 
-        let config_dir = config_path
-            .parent()
-            .unwrap_or(std::path::Path::new("."));
-        let test_dir = config
-            .runner
-            .get(&runner_name)
-            .map(|r| config_dir.join(&r.test_dir))
-            .unwrap_or_else(|| config_dir.join("ought/ought-gen"));
-
-        let generated_tests = match collect_generated_tests(&test_dir, &runner_name) {
+        let generated_tests = match collect_generated_tests(&test_dir, &resolved.file_extensions) {
             Ok(t) => t,
             Err(e) => {
                 eprintln!("error collecting tests: {}", e);
@@ -1561,17 +1577,9 @@ fn cmd_blame(cli: &Cli, args: &BlameArgs) -> anyhow::Result<()> {
     let specs = load_specs(&config, &config_path)?;
 
     // We need run results. Run the tests first.
-    let runner_name = config.runner.keys().next().cloned().unwrap_or("rust".into());
-    let runner = runners::from_name(&runner_name)?;
+    let (_runner_name, runner, resolved, test_dir) = resolve_primary_runner(&config, &config_path)?;
 
-    let config_dir = config_path.parent().unwrap_or(std::path::Path::new("."));
-    let test_dir = config
-        .runner
-        .get(&runner_name)
-        .map(|r| config_dir.join(&r.test_dir))
-        .unwrap_or_else(|| config_dir.join("ought/ought-gen"));
-
-    let generated_tests = collect_generated_tests(&test_dir, &runner_name)?;
+    let generated_tests = collect_generated_tests(&test_dir, &resolved.file_extensions)?;
     let results = if !generated_tests.is_empty() && runner.is_available() {
         runner.run(&generated_tests, &test_dir)?
     } else {
@@ -1623,8 +1631,7 @@ fn cmd_bisect(cli: &Cli, args: &BisectArgs) -> anyhow::Result<()> {
     let (config_path, config) = load_config(&cli.config)?;
     let specs = load_specs(&config, &config_path)?;
 
-    let runner_name = config.runner.keys().next().cloned().unwrap_or("rust".into());
-    let runner = runners::from_name(&runner_name)?;
+    let (_runner_name, runner, _resolved, _test_dir) = resolve_primary_runner(&config, &config_path)?;
 
     if !runner.is_available() {
         anyhow::bail!(

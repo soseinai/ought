@@ -13,6 +13,13 @@ exclude = ["target/", "ought/ought-gen/"]
 provider = "anthropic"
 model = "claude-sonnet-4-6"
 
+# Runners are CliRunners configured via `ought.toml`.
+#
+# The simplest form: name the section after a built-in preset
+# (rust | python | typescript | go) and ought fills in command, format,
+# and file extensions for you. Users only need to pin `test_dir`.
+#
+# To use a different tool, set `command`, `format`, and `file_extensions`
+# directly — see docs/design.md for the full schema.
 [runner.rust]
-command = "cargo test"
 test_dir = "ought/ought-gen/"

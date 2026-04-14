@@ -53,15 +53,19 @@ fn test_cli__init__may_prompt_the_user_interactively_for_generator_provider_and_
 fn test_cli__init__must_detect_the_project_language_from_existing_config_files_cargo() {
     let bin = ought_bin();
 
-    // (marker file, expected language key, expected runner command substring)
-    let cases: &[(&str, &str, &str)] = &[
-        ("Cargo.toml", "rust", "cargo test"),
-        ("package.json", "typescript", "jest"),
-        ("pyproject.toml", "python", "pytest"),
-        ("go.mod", "go", "go test"),
+    // (marker file, expected language key)
+    // The generated `ought.toml` selects a language by writing the matching
+    // `[runner.<lang>]` section. That section resolves to a built-in preset
+    // (pytest, nextest, jest, gotestsum), so the scaffold does not need to
+    // hard-code a harness command string.
+    let cases: &[(&str, &str)] = &[
+        ("Cargo.toml", "rust"),
+        ("package.json", "typescript"),
+        ("pyproject.toml", "python"),
+        ("go.mod", "go"),
     ];
 
-    for (marker, lang, cmd_hint) in cases {
+    for (marker, lang) in cases {
         let dir = std::env::temp_dir().join(format!(
             "ought_init_lang_{}_{}_{}",
             lang,
@@ -105,14 +109,6 @@ fn test_cli__init__must_detect_the_project_language_from_existing_config_files_c
             "ought.toml must contain [runner.{}] for a {} project; got:\n{}",
             lang,
             lang,
-            config
-        );
-
-        assert!(
-            config.contains(cmd_hint),
-            "runner command for {} must contain '{}'; got:\n{}",
-            lang,
-            cmd_hint,
             config
         );
 

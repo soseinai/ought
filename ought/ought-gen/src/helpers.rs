@@ -59,7 +59,7 @@ pub fn scaffold_project(dir: &Path) {
     fs::create_dir_all(&spec_dir).unwrap();
     fs::write(
         dir.join("ought.toml"),
-        "[project]\nname = \"test\"\n\n[specs]\nroots = [\"ought/\"]\n\n[generator]\nprovider = \"anthropic\"\n\n[runner.rust]\ncommand = \"cargo test\"\ntest_dir = \"ought/ought-gen/\"\n",
+        "[project]\nname = \"test\"\n\n[specs]\nroots = [\"ought/\"]\n\n[generator]\nprovider = \"anthropic\"\n\n[runner.rust]\ntest_dir = \"ought/ought-gen/\"\n",
     )
     .unwrap();
     fs::write(
