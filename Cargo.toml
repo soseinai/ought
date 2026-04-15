@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "crates/ought-core",
     "crates/ought-spec",
+    "crates/ought-llm",
+    "crates/ought-agent",
     "crates/ought-gen",
     "crates/ought-run",
     "crates/ought-report",
@@ -25,6 +27,8 @@ categories = ["development-tools::testing"]
 [workspace.dependencies]
 ought-core = { path = "crates/ought-core", version = "0.2.0-rc3" }
 ought-spec = { path = "crates/ought-spec", version = "0.2.0-rc3" }
+ought-llm = { path = "crates/ought-llm", version = "0.2.0-rc3" }
+ought-agent = { path = "crates/ought-agent", version = "0.2.0-rc3" }
 ought-gen = { path = "crates/ought-gen", version = "0.2.0-rc3" }
 ought-run = { path = "crates/ought-run", version = "0.2.0-rc3" }
 ought-report = { path = "crates/ought-report", version = "0.2.0-rc3" }
@@ -46,6 +50,9 @@ axum = "0.8"
 serde_json = "1"
 rust-embed = "8"
 mime_guess = "2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+async-trait = "0.1"
+futures = "0.3"
 
 [workspace.lints.rust]
 warnings = "deny"

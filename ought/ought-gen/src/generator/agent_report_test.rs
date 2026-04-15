@@ -21,21 +21,27 @@ use ought_gen::manifest::*;
 
 /// MUST compute a clause hash from the keyword + clause text + context metadata
 
-/// AgentReport tracks generated count and errors
+/// AgentReport tracks generated clauses and errors
 #[test]
 fn test_generator__agent_report__tracks_generated_and_errors() {
     use ought_gen::AgentReport;
 
+    // The report structure carries per-clause identifiers for what got
+    // generated, structured per-clause write errors, and orchestrator-
+    // level errors — populated from the ToolSet's own tracker rather
+    // than reconstructed from log scraping.
     let report = AgentReport {
-        generated: 5,
+        generated: vec!["auth::login::must_foo".to_string()],
         errors: vec!["clause X failed".to_string()],
+        ..AgentReport::default()
     };
-    assert_eq!(report.generated, 5);
+    assert_eq!(report.generated.len(), 1);
     assert_eq!(report.errors.len(), 1);
 
     let empty_report = AgentReport::default();
-    assert_eq!(empty_report.generated, 0);
+    assert!(empty_report.generated.is_empty());
     assert!(empty_report.errors.is_empty());
+    assert!(empty_report.write_errors.is_empty());
 }
 
 // ============================================================================

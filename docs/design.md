@@ -246,11 +246,15 @@ Each clause gets a stable identifier derived from the section path and clause te
 
 ### Generator
 
-Takes parsed clause IR plus source code context and uses an LLM to produce concrete test implementations. Provider-agnostic via a `Generator` trait. Providers are invoked by exec-ing their CLI tools (`claude`, `chatgpt`, `ollama`) rather than calling APIs directly — this avoids all auth management and lets users use consumer accounts, pro plans, or API keys as they see fit.
+Takes parsed clause IR plus source code context and uses an LLM to produce concrete test implementations. Provider-agnostic via the `ought-llm` crate's `Llm` trait; ought owns the agent loop in-process via the `ought-agent` crate.
 
-- Ships with Claude (execs `claude` CLI) and OpenAI (execs `chatgpt` CLI) providers.
-- Ollama support for local models (execs `ollama` CLI).
-- Custom providers by specifying an arbitrary executable in `ought.toml`.
+**Architecture: ought-as-harness, not subprocess-as-harness.** The agent is genuinely agentic — the model decides which tool to call next, when to read more source, when to retry, when it's done — but the loop runs *inside* ought rather than inside a separate `claude` / `chatgpt` CLI subprocess. Tools (`read_source`, `write_test`, `check_compiles`, etc.) are plain Rust functions in `ought-gen::tools`; the loop dispatches model-emitted tool-use blocks to them directly. No MCP plumbing on the hot path; no subprocess to coordinate with; tools are unit-testable; the same primitives can be re-exported via MCP for *external* agents that want to drive ought.
+
+- Ships with Anthropic (Messages API), OpenAI (Chat Completions), OpenRouter (OpenAI-compatible with attribution headers), and Ollama (OpenAI-compatible local) providers.
+- Custom providers by adding a new `Llm` impl in `ought-llm` or via OpenAI-compatible endpoints with a custom base URL.
+- Auth via env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`); Ollama needs no auth. No keys live in `ought.toml`.
+
+This is a deliberate reversal of the earlier "exec a CLI to inherit the user's auth session" design. The CLI-exec approach only ever worked for Claude in practice; supporting OpenAI / OpenRouter / local models meant writing per-CLI invocation shims with subtly different flag conventions — strictly more work than calling four well-documented HTTP APIs. The agent loop itself is small (~300 LOC) and gives ought direct control over prompt caching, retry policy, turn budgets, and observability.
 
 **Context assembly** — the generator reads source files from `source:` metadata (or auto-discovers relevant files), schema files, the `context:` block, and code-block hints attached to clauses. Respects a `max_files` limit to stay within LLM context.
 
@@ -504,8 +508,24 @@ exclude = ["vendor/", "generated/"]
 max_files = 50
 
 [generator]
-provider = "anthropic"       # or "openai", "ollama"
+provider = "anthropic"       # or "openai", "openrouter", "ollama"
 model = "claude-sonnet-4-6"
+max_turns = 50               # cap on agent-loop iterations per assignment
+parallelism = 1
+
+[generator.anthropic]
+api_key_env = "ANTHROPIC_API_KEY"
+# base_url = "https://api.anthropic.com"   # for proxies / Bedrock / Vertex
+
+# Only the block matching `provider` above is read; the rest are ignored.
+# [generator.openai]
+#   api_key_env = "OPENAI_API_KEY"
+# [generator.openrouter]
+#   api_key_env = "OPENROUTER_API_KEY"
+#   app_url = "https://example.com"
+#   app_title = "myapp"
+# [generator.ollama]
+#   base_url = "http://localhost:11434/v1"
 
 [generator.tolerance]
 must_by_multiplier = 1.5     # CI timing tolerance for MUST BY
@@ -602,12 +622,21 @@ The engine is written in Rust. Key dependencies (anticipated):
 ought/
   crates/
     ought-spec/        # parser + clause IR (the standard)
-    ought-gen/         # generator trait + providers
+    ought-llm/         # provider-agnostic Llm trait + adapters
+                       #   (Anthropic, OpenAI, OpenRouter, Ollama)
+    ought-agent/       # in-process agent loop + ToolSet trait
+    ought-gen/         # generation orchestrator + tool primitives
     ought-run/         # runner trait + language runners
     ought-report/      # reporter + TUI
     ought-analysis/    # survey, audit, blame, bisect
-    ought-mcp/         # MCP server
+    ought-mcp/         # MCP server (external surface only)
+    ought-server/      # web viewer
     ought-cli/         # CLI binary, ties everything together
 ```
 
-The workspace is split so that `ought-spec` has zero dependencies on LLM infrastructure and can be used standalone.
+The workspace is split so that:
+
+- `ought-spec` has zero dependencies on LLM infrastructure and can be used standalone (the open-standard parser).
+- `ought-llm` is independently publishable as a small provider-agnostic chat-completions client; nothing about it is ought-specific.
+- `ought-agent` depends only on `ought-llm` and exposes a generic agent loop plus `ToolSet` trait, reusable for any agentic task that fits the same shape.
+- `ought-gen` builds on `ought-agent` to define the generation-specific tool primitives (`read_source`, `write_test`, `check_compiles`, …) and wraps them in a `GenerateToolSet` for the orchestrator.

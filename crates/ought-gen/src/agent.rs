@@ -33,9 +33,49 @@ pub struct AssignmentClause {
     pub otherwise: Vec<AssignmentClause>,
 }
 
-/// Results from one agent's work.
-#[derive(Debug, Default)]
+/// Results from one agent's work on one assignment.
+///
+/// Populated from the `GenerateToolSet`'s recorded state (what tests it
+/// actually wrote, what failed) plus the agent loop's outcome — never
+/// reconstructed from log scraping.
+#[derive(Debug, Default, Clone)]
 pub struct AgentReport {
-    pub generated: usize,
+    /// Identifier of the assignment this report covers.
+    pub assignment_id: String,
+    /// Clause ids that had test code written for them.
+    pub generated: Vec<String>,
+    /// Per-clause write failures: (clause_id, message).
+    pub write_errors: Vec<(String, String)>,
+    /// How the agent loop terminated.
+    pub status: AgentRunStatus,
+    /// Number of model turns consumed.
+    pub turns: u32,
+    /// Token usage summed across all turns.
+    pub usage_input_tokens: u32,
+    pub usage_output_tokens: u32,
+    pub usage_cache_read_tokens: u32,
+    pub usage_cache_creation_tokens: u32,
+    /// Free-form errors from the orchestrator itself (bad config, agent
+    /// loop failure surfaced as error, etc.). Per-clause failures live
+    /// in `write_errors`.
     pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AgentRunStatus {
+    /// Agent loop hadn't been run yet (only when constructing default
+    /// reports for skipped or pre-failed assignments).
+    #[default]
+    NotRun,
+    /// Model emitted `end_turn`.
+    Completed,
+    /// Hit `max_turns` without completing.
+    MaxTurnsExceeded,
+    /// Model truncated due to `max_tokens` on its final turn.
+    Truncated,
+    /// Per-request input tokens crossed the configured budget; the loop
+    /// terminated pre-emptively.
+    ContextExhausted,
+    /// Agent loop returned an error (LLM auth/rate-limit/etc.).
+    Errored,
 }
