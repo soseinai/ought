@@ -205,7 +205,12 @@ pub fn read_source_with(
     if content.is_empty() && !lines.is_empty() && start < end_exclusive {
         truncated = true;
         let first = lines[start];
-        let take = first.len().min(max_bytes.saturating_sub(1));
+        // Byte-index slicing must land on a UTF-8 char boundary or &str
+        // slicing panics. Walk back from the requested cut if needed.
+        let mut take = first.len().min(max_bytes.saturating_sub(1));
+        while take > 0 && !first.is_char_boundary(take) {
+            take -= 1;
+        }
         content.push_str(&first[..take]);
         content.push('\n');
         last_line_returned = start;
@@ -777,6 +782,32 @@ mod tests {
         let out = read_source_with(root, "long_line.txt", None, None, 256).unwrap();
         assert!(out.truncated);
         assert!(out.content.len() <= 256);
+    }
+
+    #[test]
+    fn read_source_truncation_respects_utf8_boundaries() {
+        // Overlong first line with multi-byte characters at the byte cap.
+        // Without boundary-aware truncation, slicing `&str` by raw bytes
+        // panics when the cut lands mid-char.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // "日" is 3 bytes in UTF-8. Repeat to force a large line whose
+        // byte-length happens to land mid-character at arbitrary caps.
+        let body: String = "日".repeat(200);
+        std::fs::write(root.join("unicode.txt"), &body).unwrap();
+
+        // Try several caps where naive byte-slicing would land mid-char.
+        for cap in [50usize, 100, 200, 301, 302] {
+            let out = read_source_with(root, "unicode.txt", None, None, cap).unwrap();
+            assert!(out.truncated, "cap {}: expected truncation", cap);
+            // Content is valid UTF-8 (String invariant) and at or under cap.
+            assert!(
+                out.content.len() <= cap,
+                "cap {}: content.len()={}",
+                cap,
+                out.content.len()
+            );
+        }
     }
 
     #[test]

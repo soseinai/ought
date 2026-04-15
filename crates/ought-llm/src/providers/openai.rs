@@ -230,10 +230,19 @@ fn message_to_openai(m: &Message) -> Vec<Value> {
                             "content": content,
                         }));
                     }
-                    // OpenAI's user role can't carry tool_use blocks; if one
-                    // appears, fold its JSON into text so we don't drop info.
+                    // OpenAI's user role can't carry tool_use blocks; the
+                    // ought agent loop never produces one here, but if
+                    // upstream code ever does we flush any pending text
+                    // first, then emit the warning as its own user
+                    // message. The buffer stays clean.
                     Content::ToolUse { id, name, input } => {
-                        text_buf.push(""); // ensure separation
+                        if !text_buf.is_empty() {
+                            out.push(json!({
+                                "role": "user",
+                                "content": text_buf.join("\n"),
+                            }));
+                            text_buf.clear();
+                        }
                         out.push(json!({
                             "role": "user",
                             "content": format!(
@@ -558,6 +567,47 @@ mod tests {
             .collect();
         assert!(kvs.contains(&("HTTP-Referer", "https://example.com")));
         assert!(kvs.contains(&("X-Title", "ought")));
+    }
+
+    #[test]
+    fn user_tool_use_block_is_folded_cleanly() {
+        // Defensive path: a ToolUse block on a user message. The agent
+        // loop never produces this, but if upstream code ever does, we
+        // must (a) flush pending text first, (b) not corrupt the text
+        // buffer for subsequent blocks.
+        let req = CompletionRequest {
+            model: "x".into(),
+            system: "s".into(),
+            messages: vec![Message::User {
+                content: vec![
+                    Content::Text("leading text".into()),
+                    Content::ToolUse {
+                        id: "id_x".into(),
+                        name: "lookup".into(),
+                        input: json!({}),
+                    },
+                    Content::Text("trailing text".into()),
+                ],
+            }],
+            tools: vec![],
+            max_tokens: 1,
+            temperature: None,
+            cache_hints: CacheHints::default(),
+        };
+        let body = build_request_body(&req);
+        let msgs = body["messages"].as_array().unwrap();
+        // Expected: [system, user("leading text"), user("[unexpected ...]"),
+        //            user("trailing text")]
+        let user_msgs: Vec<&Value> = msgs.iter().filter(|m| m["role"] == "user").collect();
+        assert_eq!(user_msgs.len(), 3);
+        assert_eq!(user_msgs[0]["content"], "leading text");
+        assert!(
+            user_msgs[1]["content"]
+                .as_str()
+                .unwrap()
+                .starts_with("[unexpected tool_use")
+        );
+        assert_eq!(user_msgs[2]["content"], "trailing text");
     }
 
     #[test]

@@ -42,8 +42,14 @@ impl Orchestrator {
         }
     }
 
+    /// Run all assignments and return per-assignment reports.
+    ///
+    /// Consumes `self` so the orchestrator's `Arc<Mutex<Manifest>>`
+    /// reference is dropped on return; callers holding their own Arc
+    /// can then `Arc::try_unwrap` to recover the manifest for final
+    /// persistence.
     pub async fn run(
-        &self,
+        self,
         assignments: Vec<AgentAssignment>,
     ) -> anyhow::Result<Vec<AgentReport>> {
         if assignments.is_empty() {
@@ -285,4 +291,32 @@ fn build_initial_user_message(assignment: &AgentAssignment) -> String {
         "Begin assignment {}. Call `get_assignment` first to see your work, then proceed.",
         assignment.id
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: `run` must consume `self` so its clone of the shared
+    /// manifest Arc is dropped before the caller tries to `try_unwrap`.
+    /// An earlier version took `&self`, leaving the orchestrator's Arc
+    /// alive and silently failing the recovery path in `ought generate`.
+    #[tokio::test]
+    async fn run_releases_manifest_reference() {
+        let manifest = Arc::new(Mutex::new(Manifest::default()));
+        let orch = Orchestrator::new(
+            GeneratorConfig::default(),
+            manifest.clone(),
+            PathBuf::from("/tmp/ought_test_manifest.toml"),
+            false,
+        );
+        // Empty assignments list short-circuits before any LLM call; the
+        // test exercises only the ownership contract.
+        let _ = orch.run(vec![]).await.unwrap();
+        assert_eq!(
+            Arc::strong_count(&manifest),
+            1,
+            "orchestrator leaked a manifest Arc after run"
+        );
+    }
 }
