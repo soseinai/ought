@@ -3,6 +3,7 @@ pub mod config;
 pub mod generator;
 pub mod manifest;
 pub mod orchestrator;
+pub mod tools;
 
 pub use agent::{AgentAssignment, AgentReport, AssignmentClause, AssignmentGroup};
 pub use config::{GeneratorConfig, ToleranceConfig};
