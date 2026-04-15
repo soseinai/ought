@@ -184,14 +184,6 @@ enum McpCommand {
         /// Port for SSE transport.
         #[arg(long)]
         port: Option<u16>,
-
-        /// Server mode.
-        #[arg(long, default_value = "standard", value_enum)]
-        mode: McpModeArg,
-
-        /// Path to assignment JSON file (required for generation mode).
-        #[arg(long)]
-        assignment: Option<PathBuf>,
     },
 
     /// Register with MCP-compatible coding agents.
@@ -205,15 +197,6 @@ enum TransportArg {
     Stdio,
     /// Server-Sent Events (for remote clients).
     Sse,
-}
-
-/// MCP server operational mode.
-#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-enum McpModeArg {
-    /// Standard MCP server exposing ought tools and resources.
-    Standard,
-    /// Agent-driven generation mode (invoked by `ought generate`).
-    Generation,
 }
 
 #[derive(Clone, clap::ValueEnum)]

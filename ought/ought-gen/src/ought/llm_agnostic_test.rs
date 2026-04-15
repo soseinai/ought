@@ -49,37 +49,49 @@ fn test_ought__llm_agnostic__must_allow_the_provider_and_model_to_be_configured_
     let dir = std::env::temp_dir().join(format!("ought_llm_agnostic_config_test_{}", std::process::id()));
     fs::create_dir_all(&dir).expect("must create temp dir");
 
-    let cases: &[(&str, Option<&str>)] = &[
-        ("anthropic", Some("claude-sonnet-4-6")),
-        ("claude", Some("claude-opus-4-6")),
-        ("openai", Some("gpt-4o")),
-        ("chatgpt", Some("gpt-4o-mini")),
-        ("ollama", Some("llama3")),
-        ("ollama", None),
-        ("anthropic", None),
-        ("openai", None),
+    // Provider is a typed enum in the config surface; the TOML value is
+    // the lowercase variant name. When `model` is omitted, the config
+    // falls back to the default model string (no longer Option<String>).
+    use ought_gen::Provider;
+    let cases: &[(&str, Provider, Option<&str>)] = &[
+        ("anthropic", Provider::Anthropic, Some("claude-sonnet-4-6")),
+        ("anthropic", Provider::Anthropic, Some("claude-opus-4-6")),
+        ("openai", Provider::Openai, Some("gpt-4o")),
+        ("openai", Provider::Openai, Some("gpt-4o-mini")),
+        ("openrouter", Provider::Openrouter, Some("openrouter/auto")),
+        ("ollama", Provider::Ollama, Some("llama3")),
+        ("ollama", Provider::Ollama, None),
+        ("anthropic", Provider::Anthropic, None),
+        ("openai", Provider::Openai, None),
     ];
 
-    for (provider, model) in cases {
+    for (toml_name, expected_provider, model) in cases {
         let model_line = match model {
             Some(m) => format!("model = \"{m}\""),
             None => String::new(),
         };
         let toml = format!(
-            "[project]\nname = \"test\"\n\n[generator]\nprovider = \"{provider}\"\n{model_line}\n\n[runner.rust]\ncommand = \"cargo test\"\ntest_dir = \"tests/\"\n"
+            "[project]\nname = \"test\"\n\n[generator]\nprovider = \"{toml_name}\"\n{model_line}\n\n[runner.rust]\ncommand = \"cargo test\"\ntest_dir = \"tests/\"\n"
         );
         let path = dir.join("ought.toml");
         fs::write(&path, &toml).expect("must write ought.toml");
 
         let config = Config::load(&path).unwrap_or_else(|e| {
-            panic!("Config::load must succeed for provider=\"{provider}\" model={model:?}; got: {e}")
+            panic!("Config::load must succeed for provider=\"{toml_name}\" model={model:?}; got: {e}")
         });
 
-        assert_eq!(config.generator.provider, *provider);
+        assert_eq!(config.generator.provider, *expected_provider);
 
-        match model {
-            Some(m) => assert_eq!(config.generator.model.as_deref(), Some(*m)),
-            None => assert!(config.generator.model.is_none()),
+        if let Some(m) = model {
+            assert_eq!(config.generator.model, *m);
+        } else {
+            // Omitting `model` in TOML falls back to the serde default
+            // (the current Claude Sonnet id); it's always a non-empty
+            // string, not an Option.
+            assert!(
+                !config.generator.model.is_empty(),
+                "default model must be populated when omitted"
+            );
         }
     }
 
@@ -137,24 +149,32 @@ fn test_ought__llm_agnostic__must_not_depend_on_any_provider_specific_features_i
 /// MUST support at least Anthropic (Claude) and OpenAI as providers via agent mode
 #[test]
 fn test_ought__llm_agnostic__must_support_at_least_anthropic_claude_and_openai_as_providers() {
-    // Provider configuration is validated at the config level. The orchestrator
-    // maps provider names to agent CLI commands. Verify the config accepts these providers.
+    // Provider configuration is validated at the config level. The
+    // orchestrator maps the typed Provider enum to the appropriate
+    // in-process Llm adapter. Verify that the four shipped provider
+    // names deserialize to their enum variants.
+    use ought_gen::Provider;
     let dir = std::env::temp_dir().join(format!("ought_provider_test_{}", std::process::id()));
     fs::create_dir_all(&dir).expect("must create temp dir");
 
-    for provider in &["anthropic", "claude", "openai", "chatgpt", "ollama"] {
+    for (toml_name, expected) in &[
+        ("anthropic", Provider::Anthropic),
+        ("openai", Provider::Openai),
+        ("openrouter", Provider::Openrouter),
+        ("ollama", Provider::Ollama),
+    ] {
         let toml_content = format!(
-            "[project]\nname = \"test\"\n\n[generator]\nprovider = \"{provider}\"\n\n[runner.rust]\ncommand = \"cargo test\"\ntest_dir = \"tests/\"\n"
+            "[project]\nname = \"test\"\n\n[generator]\nprovider = \"{toml_name}\"\n\n[runner.rust]\ncommand = \"cargo test\"\ntest_dir = \"tests/\"\n"
         );
         let path = dir.join("ought.toml");
         fs::write(&path, &toml_content).expect("must write ought.toml");
         let config = Config::load(&path);
         assert!(
             config.is_ok(),
-            "Config must load with provider=\"{provider}\"; got: {:?}",
+            "Config must load with provider=\"{toml_name}\"; got: {:?}",
             config.err()
         );
-        assert_eq!(config.unwrap().generator.provider, *provider);
+        assert_eq!(config.unwrap().generator.provider, *expected);
     }
 
     fs::remove_dir_all(&dir).ok();

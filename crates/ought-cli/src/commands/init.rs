@@ -32,7 +32,27 @@ search_paths = ["src/"]
 exclude = ["target/", "ought/ought-gen/"]
 
 [generator]
+# Pick one: anthropic | openai | openrouter | ollama
 provider = "anthropic"
+model = "claude-sonnet-4-6"
+# parallelism = 1
+# max_turns = 50
+
+# Auth via env var (no keys in this file). Only the block matching
+# `provider` above is read.
+[generator.anthropic]
+api_key_env = "ANTHROPIC_API_KEY"
+
+# [generator.openai]
+# api_key_env = "OPENAI_API_KEY"
+#
+# [generator.openrouter]
+# api_key_env = "OPENROUTER_API_KEY"
+# app_url = "https://example.com"
+# app_title = "{name}"
+#
+# [generator.ollama]
+# base_url = "http://localhost:11434/v1"
 
 [runner.{lang}]
 test_dir = "ought/ought-gen/"

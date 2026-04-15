@@ -1,6 +1,8 @@
 use std::process;
+use std::sync::{Arc, Mutex};
 
 use ought_gen::manifest::Manifest;
+use ought_gen::{AgentRunStatus, AgentReport};
 
 use super::{
     build_agent_assignments, collect_all_testable_ids, collect_section_groups, load_config,
@@ -21,9 +23,9 @@ pub fn run(cli: &Cli, args: &GenerateArgs) -> anyhow::Result<()> {
 
     let groups = collect_section_groups(&specs);
 
-    let mut generated_count = 0;
-    let mut error_count = 0;
-    let mut stale_count = 0;
+    let mut generated_count = 0usize;
+    let mut error_count = 0usize;
+    let mut stale_count = 0usize;
 
     if args.check {
         for group in &groups {
@@ -61,16 +63,31 @@ pub fn run(cli: &Cli, args: &GenerateArgs) -> anyhow::Result<()> {
                 total_clauses
             );
 
-            let orchestrator = ought_gen::Orchestrator::new(&config.generator, cli.verbose);
-            let reports = orchestrator.run(assignments)?;
+            // Hand the manifest to the orchestrator behind a shared lock so
+            // tool primitives can update it in place; we'll read it back
+            // out at the end to persist orphan removal.
+            let shared_manifest = Arc::new(Mutex::new(std::mem::take(&mut manifest)));
+
+            let orchestrator = ought_gen::Orchestrator::new(
+                config.generator.clone(),
+                shared_manifest.clone(),
+                manifest_path.clone(),
+                cli.verbose,
+            );
+
+            let reports = tokio::runtime::Runtime::new()?.block_on(orchestrator.run(assignments))?;
 
             for report in &reports {
-                generated_count += report.generated;
-                for err in &report.errors {
-                    eprintln!("  error: {}", err);
-                    error_count += 1;
-                }
+                render_report(report, cli.verbose);
+                generated_count += report.generated.len();
+                error_count += report.write_errors.len() + report.errors.len();
             }
+
+            // Recover the manifest for orphan cleanup and final save.
+            manifest = Arc::try_unwrap(shared_manifest)
+                .map_err(|_| anyhow::anyhow!("manifest still has outstanding references"))?
+                .into_inner()
+                .map_err(|_| anyhow::anyhow!("manifest mutex poisoned"))?;
         }
     }
 
@@ -88,4 +105,37 @@ pub fn run(cli: &Cli, args: &GenerateArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn render_report(report: &AgentReport, verbose: bool) {
+    let status_label = match report.status {
+        AgentRunStatus::Completed => "completed",
+        AgentRunStatus::MaxTurnsExceeded => "max-turns-exceeded",
+        AgentRunStatus::Truncated => "truncated",
+        AgentRunStatus::ContextExhausted => "context-exhausted",
+        AgentRunStatus::Errored => "errored",
+        AgentRunStatus::NotRun => "not-run",
+    };
+    eprintln!(
+        "  [agent {}] {}: {} written, {} write errors, {} turns, {}/{} tokens (in/out)",
+        report.assignment_id,
+        status_label,
+        report.generated.len(),
+        report.write_errors.len(),
+        report.turns,
+        report.usage_input_tokens,
+        report.usage_output_tokens,
+    );
+    for err in &report.errors {
+        eprintln!("    error: {}", err);
+    }
+    for (clause_id, msg) in &report.write_errors {
+        eprintln!("    write_error[{}]: {}", clause_id, msg);
+    }
+    if verbose && (report.usage_cache_read_tokens + report.usage_cache_creation_tokens) > 0 {
+        eprintln!(
+            "    cache: {} read, {} created",
+            report.usage_cache_read_tokens, report.usage_cache_creation_tokens
+        );
+    }
 }

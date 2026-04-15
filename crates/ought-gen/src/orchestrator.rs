@@ -1,298 +1,322 @@
-use std::io::Read;
-use std::process::{Command, Stdio};
+//! Orchestrates per-assignment in-process agent loops.
+//!
+//! For each assignment, builds a [`GenerateToolSet`] over the shared
+//! manifest and an [`ought_agent::Agent`] over a shared [`Llm`] client,
+//! then runs the loop. Concurrency is bounded by a [`tokio::Semaphore`];
+//! per-clause outcomes are read out of the tool set's tracker rather
+//! than reconstructed from any model output.
 
-use crate::agent::{AgentAssignment, AgentReport};
-use crate::config::GeneratorConfig;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
-/// Orchestrates spawning LLM agents that connect to ought's MCP server
-/// and drive the generation loop themselves.
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
+
+use ought_agent::{Agent, AgentConfig, AgentError, RunStatus};
+use ought_llm::{AnthropicLlm, Llm, OpenAiLlm};
+
+use crate::agent::{AgentAssignment, AgentReport, AgentRunStatus};
+use crate::config::{GeneratorConfig, Provider};
+use crate::manifest::Manifest;
+use crate::tool_set::GenerateToolSet;
+
 pub struct Orchestrator {
-    agent_command: String,
-    model: Option<String>,
-    parallelism: usize,
+    config: GeneratorConfig,
     verbose: bool,
-}
-
-/// Build the system prompt for an agent, including its source file paths.
-fn build_system_prompt(assignment: &AgentAssignment) -> String {
-    let mut prompt = String::from(
-        "You are a test generation agent for the ought behavioral test framework.\n\n"
-    );
-
-    // Tell the agent about source files to read
-    if !assignment.source_paths.is_empty() {
-        prompt.push_str("IMPORTANT: Before generating tests, read the source files for the code under test.\n");
-        prompt.push_str("Use read_source to read these files:\n");
-        for path in &assignment.source_paths {
-            prompt.push_str(&format!("  - {}\n", path));
-        }
-        prompt.push_str("\nIf a source file doesn't exist yet, that's OK. ");
-        prompt.push_str("You are in TDD mode: write tests against the expected interface ");
-        prompt.push_str("described in the spec clauses. Assume reasonable function signatures ");
-        prompt.push_str("and types based on the clause text. The implementation will be written ");
-        prompt.push_str("to make these tests pass.\n\n");
-    } else {
-        prompt.push_str("You are in TDD mode. The source code may not exist yet. ");
-        prompt.push_str("Write tests against the expected interface described in the spec clauses. ");
-        prompt.push_str("Assume reasonable function signatures and types.\n\n");
-    }
-
-    prompt.push_str(
-        "Use the provided MCP tools to generate tests:\n\
-         1. Call get_assignment to see your assigned clause groups\n\
-         2. Use read_source to read the source files listed above (and any others you need)\n\
-         3. Generate test functions and write them using write_test or write_tests_batch\n\
-         4. Call check_compiles to verify tests compile, fix any errors\n\
-         5. Call report_progress to report your status\n\n\
-         Generate self-contained tests with the clause text as a doc comment.\n\n"
-    );
-
-    prompt.push_str(
-        "TEST FILE LAYOUT (per-subsection):\n\
-         All clauses under the same subsection share a single test file.\n\
-         For a clause ID like `parser::clause_ir::must_generate_foo`, the file is\n\
-         `<test_dir>/src/parser/clause_ir_test.rs` (for Rust). Write only the\n\
-         `#[test]` function plus its leading doc comment; write_test merges it\n\
-         into the file, replacing any previous version with the same fn name.\n\n\
-         Name each Rust test function as:\n\
-         `fn test_<subsystem>__<subsection>__<clause_slug>()` — using DOUBLE\n\
-         underscores to separate `::` boundaries, so the full clause path is\n\
-         recoverable from the function name. The clause_slug is everything\n\
-         after the subsection in the clause ID.\n\n"
-    );
-
-    prompt.push_str(&format!("Target language: {}. ", assignment.target_language));
-    match assignment.target_language.as_str() {
-        "rust" => prompt.push_str("Use #[test] attribute and assert! macros.\n"),
-        "python" => prompt.push_str("Use def test_... with assert statements.\n"),
-        "typescript" | "ts" | "javascript" | "js" => {
-            prompt.push_str("Use test() or it() with expect() assertions (Jest style).\n")
-        }
-        "go" => prompt.push_str("Use func Test...(t *testing.T) with t.Error/t.Fatal.\n"),
-        _ => prompt.push_str("Use the language's standard test conventions.\n"),
-    }
-
-    prompt
+    manifest: Arc<Mutex<Manifest>>,
+    manifest_path: PathBuf,
 }
 
 impl Orchestrator {
-    pub fn new(config: &GeneratorConfig, verbose: bool) -> Self {
-        // Determine the agent command from the provider.
-        let agent_command = match config.provider.to_lowercase().as_str() {
-            "anthropic" | "claude" => "claude".to_string(),
-            other => other.to_string(),
-        };
+    pub fn new(
+        config: GeneratorConfig,
+        manifest: Arc<Mutex<Manifest>>,
+        manifest_path: PathBuf,
+        verbose: bool,
+    ) -> Self {
         Self {
-            agent_command,
-            model: config.model.clone(),
-            parallelism: config.parallelism.max(1),
+            config,
             verbose,
+            manifest,
+            manifest_path,
         }
     }
 
-    /// Run all assignments, spawning agents with MCP server connections.
-    /// Uses threads for parallelism (not async).
-    pub fn run(
-        &self,
+    /// Run all assignments and return per-assignment reports.
+    ///
+    /// Consumes `self` so the orchestrator's `Arc<Mutex<Manifest>>`
+    /// reference is dropped on return; callers holding their own Arc
+    /// can then `Arc::try_unwrap` to recover the manifest for final
+    /// persistence.
+    pub async fn run(
+        self,
         assignments: Vec<AgentAssignment>,
     ) -> anyhow::Result<Vec<AgentReport>> {
         if assignments.is_empty() {
             return Ok(vec![]);
         }
 
-        // Create a temp directory that lives for the duration of this run.
-        let tmp_dir = tempfile::tempdir()
-            .map_err(|e| anyhow::anyhow!("failed to create temp directory: {}", e))?;
+        let llm = build_llm(&self.config)?;
+        let agent_cfg = AgentConfig {
+            model: self.config.model.clone(),
+            max_turns: self.config.max_turns,
+            max_tokens_per_response: self.config.max_tokens_per_response,
+            temperature: self.config.temperature,
+            context_budget_tokens: self.config.context_budget_tokens,
+            eviction_threshold_tokens: self.config.eviction_threshold_tokens,
+            ..AgentConfig::default()
+        };
+        let read_source_limit = self.config.read_source_limit_bytes;
 
-        // Prepare all temp files up front.
-        let prepared: Vec<(AgentAssignment, std::path::PathBuf, std::path::PathBuf)> = assignments
-            .into_iter()
-            .enumerate()
-            .map(|(i, assignment)| {
-                let assignment_path = tmp_dir.path().join(format!("assignment_{}.json", i));
-                let mcp_config_path = tmp_dir.path().join(format!("mcp_config_{}.json", i));
-                (assignment, assignment_path, mcp_config_path)
-            })
-            .collect();
+        let parallelism = self.config.parallelism.max(1);
+        let sem = Arc::new(Semaphore::new(parallelism));
+        let mut tasks = JoinSet::new();
 
-        // Write assignment and MCP config files.
-        for (assignment, assignment_path, mcp_config_path) in &prepared {
-            let assignment_json = serde_json::to_string_pretty(assignment)
-                .map_err(|e| anyhow::anyhow!("failed to serialize assignment: {}", e))?;
-            std::fs::write(assignment_path, assignment_json)?;
+        for assignment in assignments {
+            let permit = sem.clone().acquire_owned().await?;
+            let llm = llm.clone();
+            let agent_cfg = agent_cfg.clone();
+            let manifest = self.manifest.clone();
+            let manifest_path = self.manifest_path.clone();
+            let verbose = self.verbose;
 
-            let mcp_config = serde_json::json!({
-                "mcpServers": {
-                    "ought-gen": {
-                        "command": "ought",
-                        "args": [
-                            "mcp", "serve",
-                            "--mode", "generation",
-                            "--assignment", assignment_path.to_string_lossy()
-                        ]
-                    }
-                }
+            tasks.spawn(async move {
+                let _permit = permit;
+                run_one_assignment(
+                    assignment,
+                    llm,
+                    agent_cfg,
+                    manifest,
+                    manifest_path,
+                    read_source_limit,
+                    verbose,
+                )
+                .await
             });
-            let mcp_config_json = serde_json::to_string_pretty(&mcp_config)
-                .map_err(|e| anyhow::anyhow!("failed to serialize MCP config: {}", e))?;
-            std::fs::write(mcp_config_path, mcp_config_json)?;
         }
 
-        // Spawn agents in batches of `parallelism`.
-        let mut all_reports = Vec::new();
-        let agent_command = self.agent_command.clone();
-        let model = self.model.clone();
-        let verbose = self.verbose;
-
-        for chunk in prepared.chunks(self.parallelism) {
-            let handles: Vec<std::thread::JoinHandle<AgentReport>> = chunk
-                .iter()
-                .map(|(assignment, _assignment_path, mcp_config_path)| {
-                    let mcp_config_path = mcp_config_path.clone();
-                    let agent_command = agent_command.clone();
-                    let model = model.clone();
-                    let assignment_id = assignment.id.clone();
-                    let group_count = assignment.groups.len();
-                    let clause_count: usize =
-                        assignment.groups.iter().map(|g| g.clauses.len()).sum();
-
-                    let system_prompt = build_system_prompt(assignment);
-
-                    std::thread::spawn(move || {
-                        if verbose {
-                            eprintln!(
-                                "  [agent {}] starting: {} groups, {} clauses",
-                                assignment_id, group_count, clause_count
-                            );
-                        }
-
-                        let report = run_single_agent(
-                            &agent_command,
-                            model.as_deref(),
-                            &mcp_config_path,
-                            &system_prompt,
-                            verbose,
-                        );
-
-                        match report {
-                            Ok(r) => {
-                                if verbose {
-                                    eprintln!(
-                                        "  [agent {}] finished: {} generated, {} errors",
-                                        assignment_id,
-                                        r.generated,
-                                        r.errors.len()
-                                    );
-                                }
-                                r
-                            }
-                            Err(e) => {
-                                let msg = format!(
-                                    "agent {} failed: {}",
-                                    assignment_id, e
-                                );
-                                eprintln!("  {}", msg);
-                                AgentReport {
-                                    generated: 0,
-                                    errors: vec![msg],
-                                }
-                            }
-                        }
-                    })
-                })
-                .collect();
-
-            for handle in handles {
-                match handle.join() {
-                    Ok(report) => all_reports.push(report),
-                    Err(_) => {
-                        all_reports.push(AgentReport {
-                            generated: 0,
-                            errors: vec!["agent thread panicked".to_string()],
-                        });
-                    }
-                }
+        let mut reports = Vec::new();
+        while let Some(joined) = tasks.join_next().await {
+            match joined {
+                Ok(report) => reports.push(report),
+                Err(e) => reports.push(AgentReport {
+                    errors: vec![format!("agent task panicked: {}", e)],
+                    status: AgentRunStatus::Errored,
+                    ..AgentReport::default()
+                }),
             }
         }
-
-        Ok(all_reports)
+        Ok(reports)
     }
 }
 
-/// Spawn a single agent process and wait for it to complete.
-fn run_single_agent(
-    agent_command: &str,
-    model: Option<&str>,
-    mcp_config_path: &std::path::Path,
-    system_prompt: &str,
+async fn run_one_assignment(
+    assignment: AgentAssignment,
+    llm: Arc<dyn Llm>,
+    agent_cfg: AgentConfig,
+    manifest: Arc<Mutex<Manifest>>,
+    manifest_path: PathBuf,
+    read_source_limit_bytes: usize,
     verbose: bool,
-) -> anyhow::Result<AgentReport> {
-    let mut args: Vec<String> = vec![
-        "--mcp-config".into(),
-        mcp_config_path.to_string_lossy().into_owned(),
-        "-p".into(),
-        system_prompt.into(),
-    ];
+) -> AgentReport {
+    let assignment_id = assignment.id.clone();
+    let group_count = assignment.groups.len();
+    let clause_count: usize = assignment.groups.iter().map(|g| g.clauses.len()).sum();
 
-    if let Some(m) = model {
-        args.push("--model".into());
-        args.push(m.to_string());
+    if verbose {
+        eprintln!(
+            "  [agent {}] starting: {} groups, {} clauses",
+            assignment_id, group_count, clause_count
+        );
     }
 
-    let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    let tools = GenerateToolSet::with_limits(
+        assignment.clone(),
+        manifest,
+        manifest_path,
+        read_source_limit_bytes,
+    );
+    let system = build_system_prompt(&assignment);
+    let initial = build_initial_user_message(&assignment);
 
-    let stderr_cfg = if verbose {
-        Stdio::inherit()
-    } else {
-        Stdio::piped()
+    let agent = Agent::new(llm, agent_cfg);
+    let result = agent.run(system, initial, &tools).await;
+    let usage_snapshot = tools.usage();
+
+    let mut report = AgentReport {
+        assignment_id: assignment_id.clone(),
+        generated: usage_snapshot.written,
+        write_errors: usage_snapshot.write_errors,
+        ..AgentReport::default()
     };
 
-    let mut child = Command::new(agent_command)
-        .args(&args_ref)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(stderr_cfg)
-        .spawn()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                anyhow::anyhow!(
-                    "agent command '{}' not found. Is it installed and on PATH?",
-                    agent_command
-                )
-            } else {
-                anyhow::anyhow!("failed to spawn agent '{}': {}", agent_command, e)
+    match result {
+        Ok(outcome) => {
+            report.status = match outcome.status {
+                RunStatus::Completed => AgentRunStatus::Completed,
+                RunStatus::MaxTurnsExceeded => AgentRunStatus::MaxTurnsExceeded,
+                RunStatus::Truncated => AgentRunStatus::Truncated,
+                RunStatus::ContextExhausted => AgentRunStatus::ContextExhausted,
+            };
+            report.turns = outcome.turns;
+            report.usage_input_tokens = outcome.usage.input_tokens;
+            report.usage_output_tokens = outcome.usage.output_tokens;
+            report.usage_cache_read_tokens = outcome.usage.cache_read_tokens;
+            report.usage_cache_creation_tokens = outcome.usage.cache_creation_tokens;
+            if verbose {
+                eprintln!(
+                    "  [agent {}] finished: {} written, {} write errors, {} turns",
+                    assignment_id,
+                    report.generated.len(),
+                    report.write_errors.len(),
+                    report.turns
+                );
             }
-        })?;
-
-    let mut stdout_output = String::new();
-    if let Some(ref mut stdout) = child.stdout {
-        stdout.read_to_string(&mut stdout_output)?;
+        }
+        Err(AgentError::Llm { attempts, source }) => {
+            report.status = AgentRunStatus::Errored;
+            report.errors.push(format!(
+                "agent loop failed after {} attempt(s): {}",
+                attempts, source
+            ));
+            if verbose {
+                eprintln!("  [agent {}] errored: {}", assignment_id, source);
+            }
+        }
     }
 
-    let status = child.wait()?;
+    report
+}
 
-    if !status.success() {
-        return Ok(AgentReport {
-            generated: 0,
-            errors: vec![format!(
-                "agent exited with status {}: {}",
-                status,
-                stdout_output.chars().take(500).collect::<String>()
-            )],
-        });
+fn build_llm(config: &GeneratorConfig) -> anyhow::Result<Arc<dyn Llm>> {
+    fn require_env(var: &str) -> anyhow::Result<String> {
+        std::env::var(var).map_err(|_| {
+            anyhow::anyhow!("{} not set; export it or change provider in ought.toml", var)
+        })
     }
 
-    // The agent writes tests via MCP tools. We estimate generated count
-    // from the output, but the real work was done through the MCP server
-    // which wrote files and updated the manifest directly.
-    // We parse stdout for any progress reports the agent may have emitted.
-    let generated = stdout_output
-        .lines()
-        .filter(|line| line.contains("write_test") || line.contains("write_tests_batch"))
-        .count();
+    match config.provider {
+        Provider::Anthropic => {
+            let key = require_env(&config.anthropic.api_key_env)?;
+            let llm = match &config.anthropic.base_url {
+                Some(url) => AnthropicLlm::with_base_url(key, url.clone())?,
+                None => AnthropicLlm::new(key)?,
+            };
+            Ok(Arc::new(llm))
+        }
+        Provider::Openai => {
+            let key = require_env(&config.openai.api_key_env)?;
+            let llm = match &config.openai.base_url {
+                Some(url) => OpenAiLlm::custom("openai", Some(key), url.clone(), vec![])?,
+                None => OpenAiLlm::openai(key)?,
+            };
+            Ok(Arc::new(llm))
+        }
+        Provider::Openrouter => {
+            let key = require_env(&config.openrouter.api_key_env)?;
+            let llm = OpenAiLlm::openrouter(
+                key,
+                config.openrouter.app_url.clone(),
+                config.openrouter.app_title.clone(),
+            )?;
+            Ok(Arc::new(llm))
+        }
+        Provider::Ollama => {
+            let llm = OpenAiLlm::ollama(config.ollama.base_url.clone())?;
+            Ok(Arc::new(llm))
+        }
+    }
+}
 
-    Ok(AgentReport {
-        generated,
-        errors: vec![],
-    })
+fn build_system_prompt(assignment: &AgentAssignment) -> String {
+    let mut p = String::from(
+        "You are a test generation agent for the ought behavioral test framework.\n\n",
+    );
+
+    if !assignment.source_paths.is_empty() {
+        p.push_str("Before generating tests, read the source files for the code under test ");
+        p.push_str("with `read_source`:\n");
+        for path in &assignment.source_paths {
+            p.push_str(&format!("  - {}\n", path));
+        }
+        p.push_str("\nIf a source file doesn't exist yet, that's OK — write tests against ");
+        p.push_str("the expected interface described in the spec clauses (TDD mode). Assume ");
+        p.push_str("reasonable function signatures based on the clause text.\n\n");
+    } else {
+        p.push_str("You are in TDD mode. The source code may not exist yet. Write tests ");
+        p.push_str("against the expected interface described in the spec clauses. Assume ");
+        p.push_str("reasonable function signatures based on the clause text.\n\n");
+    }
+
+    p.push_str(
+        "Your tools:\n\
+         1. `get_assignment` — see the clauses you must generate tests for.\n\
+         2. `read_source` / `list_source_files` — explore the project.\n\
+         3. `write_test` / `write_tests_batch` — emit test code.\n\
+         4. `check_compiles` — verify your tests compile; iterate on failures.\n\
+         5. `report_progress` — emit human-visible progress lines.\n\n\
+         Generate self-contained tests with the clause text as a doc comment.\n\n\
+         TEST FILE LAYOUT (per-subsection):\n\
+         All clauses under the same subsection share a single test file.\n\
+         For a clause id `parser::clause_ir::must_generate_foo`, the file is\n\
+         `<test_dir>/src/parser/clause_ir_test.rs` (Rust). Write only the\n\
+         #[test] function plus its leading doc comment; write_test merges\n\
+         it into the file, replacing any previous version with the same fn name.\n\n\
+         Name each Rust test function as:\n\
+         `fn test_<subsystem>__<subsection>__<clause_slug>()` — using DOUBLE\n\
+         underscores to separate `::` boundaries, so the full clause path is\n\
+         recoverable from the function name. The clause_slug is everything\n\
+         after the subsection in the clause id.\n\n",
+    );
+
+    p.push_str(&format!(
+        "Target language: {}. ",
+        assignment.target_language
+    ));
+    match assignment.target_language.as_str() {
+        "rust" => p.push_str("Use #[test] attribute and assert! macros.\n"),
+        "python" => p.push_str("Use def test_... with assert statements.\n"),
+        "typescript" | "ts" | "javascript" | "js" => {
+            p.push_str("Use test() or it() with expect() assertions (Jest style).\n")
+        }
+        "go" => p.push_str("Use func Test...(t *testing.T) with t.Error/t.Fatal.\n"),
+        _ => p.push_str("Use the language's standard test conventions.\n"),
+    }
+
+    p
+}
+
+fn build_initial_user_message(assignment: &AgentAssignment) -> String {
+    format!(
+        "Begin assignment {}. Call `get_assignment` first to see your work, then proceed.",
+        assignment.id
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: `run` must consume `self` so its clone of the shared
+    /// manifest Arc is dropped before the caller tries to `try_unwrap`.
+    /// An earlier version took `&self`, leaving the orchestrator's Arc
+    /// alive and silently failing the recovery path in `ought generate`.
+    #[tokio::test]
+    async fn run_releases_manifest_reference() {
+        let manifest = Arc::new(Mutex::new(Manifest::default()));
+        let orch = Orchestrator::new(
+            GeneratorConfig::default(),
+            manifest.clone(),
+            PathBuf::from("/tmp/ought_test_manifest.toml"),
+            false,
+        );
+        // Empty assignments list short-circuits before any LLM call; the
+        // test exercises only the ownership contract.
+        let _ = orch.run(vec![]).await.unwrap();
+        assert_eq!(
+            Arc::strong_count(&manifest),
+            1,
+            "orchestrator leaked a manifest Arc after run"
+        );
+    }
 }
