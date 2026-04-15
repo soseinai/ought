@@ -4,6 +4,7 @@ members = [
     "crates/ought-core",
     "crates/ought-spec",
     "crates/ought-llm",
+    "crates/ought-agent",
     "crates/ought-gen",
     "crates/ought-run",
     "crates/ought-report",
@@ -27,6 +28,7 @@ categories = ["development-tools::testing"]
 ought-core = { path = "crates/ought-core", version = "0.2.0-rc3" }
 ought-spec = { path = "crates/ought-spec", version = "0.2.0-rc3" }
 ought-llm = { path = "crates/ought-llm", version = "0.2.0-rc3" }
+ought-agent = { path = "crates/ought-agent", version = "0.2.0-rc3" }
 ought-gen = { path = "crates/ought-gen", version = "0.2.0-rc3" }
 ought-run = { path = "crates/ought-run", version = "0.2.0-rc3" }
 ought-report = { path = "crates/ought-report", version = "0.2.0-rc3" }

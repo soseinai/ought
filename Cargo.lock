@@ -992,6 +992,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ought-agent"
+version = "0.2.0-rc3"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "ought-llm",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "ought-analysis"
 version = "0.2.0-rc3"
 dependencies = [
