@@ -6,31 +6,33 @@ order: 2
 
 Ought ships as a single static binary. Pick whichever installer matches your environment.
 
-## Shell installer
+<div class="install-tabs">
 
-The shell installer detects your platform and architecture and downloads the right binary.
+### sh
 
 ```sh
 curl -sS https://sosein.ai/install.sh | sh
 ```
 
-This installs `ought` into `~/.local/bin`. Add that directory to your `PATH` if it isn't already.
+The shell installer detects your platform and architecture and downloads the right binary. It installs `ought` into `~/.local/bin` — add that directory to your `PATH` if it isn't already.
 
-## Cargo
-
-If you have a Rust toolchain installed, you can build from source via crates.io:
+### cargo
 
 ```sh
 cargo install ought
 ```
 
-## Homebrew
+If you have a Rust toolchain installed, you can build from source via crates.io.
 
-On macOS or Linux with Homebrew:
+### brew
 
 ```sh
 brew install soseinai/tap/ought
 ```
+
+On macOS or Linux with Homebrew.
+
+</div>
 
 ## Verifying the install
 
