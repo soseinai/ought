@@ -8,11 +8,11 @@ use ought_gen::manifest::Manifest;
 use ought_run::runners;
 use ought_spec::SpecGraph;
 
-pub mod audit;
 pub mod bisect;
 pub mod blame;
 pub mod check;
 pub mod diff;
+pub mod extract;
 pub mod generate;
 pub mod init;
 pub mod inspect;

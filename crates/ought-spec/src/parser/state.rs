@@ -519,11 +519,11 @@ impl ParseState {
                 }
             }
 
-            Event::Start(Tag::Paragraph) => {
-                if self.metadata_region && !self.in_list_item() {
-                    self.in_metadata_paragraph = true;
-                    self.metadata_paragraph_text.clear();
-                }
+            Event::Start(Tag::Paragraph)
+                if self.metadata_region && !self.in_list_item() =>
+            {
+                self.in_metadata_paragraph = true;
+                self.metadata_paragraph_text.clear();
             }
             Event::End(TagEnd::Paragraph) => {
                 if self.in_metadata_paragraph {
@@ -536,22 +536,18 @@ impl ParseState {
             }
 
             // Handle links — important for metadata `requires:` parsing
-            Event::Start(Tag::Link { dest_url, .. }) => {
-                if self.in_metadata_paragraph {
-                    self.in_metadata_link = true;
-                    self.metadata_link_url = dest_url.to_string();
-                    self.metadata_link_label.clear();
-                }
+            Event::Start(Tag::Link { dest_url, .. }) if self.in_metadata_paragraph => {
+                self.in_metadata_link = true;
+                self.metadata_link_url = dest_url.to_string();
+                self.metadata_link_label.clear();
             }
-            Event::End(TagEnd::Link) => {
-                if self.in_metadata_link {
-                    self.in_metadata_link = false;
-                    // Reconstruct the markdown link syntax so parse_metadata_block can parse it
-                    let label = std::mem::take(&mut self.metadata_link_label);
-                    let url = std::mem::take(&mut self.metadata_link_url);
-                    self.metadata_paragraph_text
-                        .push_str(&format!("[{}]({})", label, url));
-                }
+            Event::End(TagEnd::Link) if self.in_metadata_link => {
+                self.in_metadata_link = false;
+                // Reconstruct the markdown link syntax so parse_metadata_block can parse it
+                let label = std::mem::take(&mut self.metadata_link_label);
+                let url = std::mem::take(&mut self.metadata_link_url);
+                self.metadata_paragraph_text
+                    .push_str(&format!("[{}]({})", label, url));
             }
 
             Event::Text(text) => {

@@ -188,7 +188,7 @@ async fn run_one_assignment(
     report
 }
 
-fn build_llm(config: &GeneratorConfig) -> anyhow::Result<Arc<dyn Llm>> {
+pub(crate) fn build_llm(config: &GeneratorConfig) -> anyhow::Result<Arc<dyn Llm>> {
     fn require_env(var: &str) -> anyhow::Result<String> {
         std::env::var(var).map_err(|_| {
             anyhow::anyhow!("{} not set; export it or change provider in ought.toml", var)

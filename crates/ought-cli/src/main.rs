@@ -48,6 +48,9 @@ enum Command {
     /// Regenerate test code from specs using the LLM.
     Generate(GenerateArgs),
 
+    /// Audit existing specs and reverse-engineer drafts for uncovered source.
+    Extract(ExtractArgs),
+
     /// Validate spec file syntax without generating or running.
     Check,
 
@@ -106,6 +109,37 @@ struct GenerateArgs {
 }
 
 #[derive(clap::Args)]
+struct ExtractArgs {
+    /// Source path(s) to extract specs from (default: [context].search_paths).
+    #[arg(num_args = 0..)]
+    paths: Vec<PathBuf>,
+
+    /// Directory to write spec drafts into (default: first [specs].roots entry).
+    #[arg(long)]
+    out: Option<PathBuf>,
+
+    /// Print generated spec(s) to stdout instead of writing files.
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Overwrite existing `.ought.md` files.
+    #[arg(long)]
+    force: bool,
+
+    /// Skip the rule-based audit phase over existing specs.
+    #[arg(long)]
+    no_audit: bool,
+
+    /// Override the generator model for this run.
+    #[arg(long)]
+    model: Option<String>,
+
+    /// Number of agents to run in parallel (default: [generator].parallelism).
+    #[arg(long)]
+    parallelism: Option<usize>,
+}
+
+#[derive(clap::Args)]
 struct InspectArgs {
     /// Clause identifier (e.g. `auth::login::must_return_jwt`).
     clause: String,
@@ -145,9 +179,6 @@ struct AnalyzeArgs {
 
 #[derive(Subcommand)]
 enum AnalyzeCommand {
-    /// Analyze specs for contradictions, gaps, and coherence issues.
-    Audit,
-
     /// Discover source behaviors not covered by any spec.
     Survey(SurveyArgs),
 }
@@ -223,11 +254,11 @@ fn main() -> anyhow::Result<()> {
         Command::Init => commands::init::run(),
         Command::Run(args) => commands::run::run(&cli, args),
         Command::Generate(args) => commands::generate::run(&cli, args),
+        Command::Extract(args) => commands::extract::run(&cli, args),
         Command::Check => commands::check::run(&cli),
         Command::Inspect(args) => commands::inspect::run(&cli, args),
         Command::Diff => commands::diff::run(&cli),
         Command::Analyze(args) => match &args.command {
-            AnalyzeCommand::Audit => commands::audit::run(&cli),
             AnalyzeCommand::Survey(args) => commands::survey::run(&cli, args),
         },
         Command::Debug(args) => match &args.command {
