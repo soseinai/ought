@@ -56,6 +56,26 @@ lint-rust: build-ui
 
 
 # ============================================================
+# python
+# ============================================================
+
+# Build a release Python wheel for the current platform (UI must be built first so rust-embed can find dist/)
+[group: 'python']
+build-wheel: build-ui
+    maturin build --release
+
+# Install the binary into the active virtualenv for local testing
+[group: 'python']
+develop: build-ui
+    maturin develop
+
+# Publish wheels to PyPI (extra args forwarded, e.g. --skip-existing)
+[group: 'python']
+publish-pypi *args: build-ui
+    maturin publish {{args}}
+
+
+# ============================================================
 # all
 # ============================================================
 

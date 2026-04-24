@@ -1,0 +1,28 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "ought"
+description = "CLI for the ought behavioral test framework"
+readme = "README.md"
+license = { text = "MIT OR Apache-2.0" }
+requires-python = ">=3.8"
+keywords = ["testing", "specs", "llm", "behavioral", "deontic"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Testing",
+    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://sosein.ai/products/ought"
+Repository = "https://github.com/soseinai/ought"
+
+[tool.maturin]
+bindings = "bin"
+manifest-path = "crates/ought-cli/Cargo.toml"
+strip = true
