@@ -1,4 +1,4 @@
-//! [`ought_agent::ToolSet`] adapter for the extraction agent loop.
+//! [`oharness_tools::ToolSet`] adapter for the extraction agent loop.
 //!
 //! Wraps the sync primitives in [`crate::extract_tools`] as async tools
 //! and records per-assignment usage so the orchestrator can build an
@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use ought_agent::{ToolOutcome, ToolSet};
-use ought_llm::ToolSpec;
+use oharness_tools::{ToolOutcome, ToolSet, ToolSpec};
+use oharness_tools::context::ToolContext;
 
 use crate::extract::ExtractAssignment;
 use crate::extract_tools::{self, WriteSpecOutput};
@@ -58,7 +58,7 @@ impl ToolSet for ExtractToolSet {
         &self.specs
     }
 
-    async fn execute(&self, name: &str, input: Value) -> ToolOutcome {
+    async fn execute(&self, name: &str, input: Value, _ctx: &ToolContext) -> ToolOutcome {
         match name {
             "get_assignment" => {
                 let out = extract_tools::get_assignment(&self.assignment);
@@ -68,7 +68,7 @@ impl ToolSet for ExtractToolSet {
             "read_source" => {
                 let path = match input.get("path").and_then(|v| v.as_str()) {
                     Some(p) => p.to_string(),
-                    None => return ToolOutcome::err("missing required argument: path"),
+                    None => return err("missing required argument: path"),
                 };
                 let start_line = input
                     .get("start_line")
@@ -86,8 +86,8 @@ impl ToolSet for ExtractToolSet {
                 .await
                 {
                     Ok(Ok(out)) => serde_outcome(&out),
-                    Ok(Err(e)) => ToolOutcome::err(e.to_string()),
-                    Err(e) => ToolOutcome::err(format!("read_source task panicked: {}", e)),
+                    Ok(Err(e)) => err(e.to_string()),
+                    Err(e) => err(format!("read_source task panicked: {}", e)),
                 }
             }
 
@@ -104,31 +104,31 @@ impl ToolSet for ExtractToolSet {
                 .await;
                 match out {
                     Ok(o) => serde_outcome(&o),
-                    Err(e) => ToolOutcome::err(format!("list task panicked: {}", e)),
+                    Err(e) => err(format!("list task panicked: {}", e)),
                 }
             }
 
             "validate_spec" => {
                 let content = match input.get("content").and_then(|v| v.as_str()) {
                     Some(s) => s.to_string(),
-                    None => return ToolOutcome::err("missing required argument: content"),
+                    None => return err("missing required argument: content"),
                 };
                 let out = tokio::task::spawn_blocking(move || extract_tools::validate_spec(&content))
                     .await;
                 match out {
                     Ok(o) => serde_outcome(&o),
-                    Err(e) => ToolOutcome::err(format!("validate_spec task panicked: {}", e)),
+                    Err(e) => err(format!("validate_spec task panicked: {}", e)),
                 }
             }
 
             "write_spec" => {
                 let target_path = match input.get("target_path").and_then(|v| v.as_str()) {
                     Some(s) => s.to_string(),
-                    None => return ToolOutcome::err("missing required argument: target_path"),
+                    None => return err("missing required argument: target_path"),
                 };
                 let content = match input.get("content").and_then(|v| v.as_str()) {
                     Some(s) => s.to_string(),
-                    None => return ToolOutcome::err("missing required argument: content"),
+                    None => return err("missing required argument: content"),
                 };
                 let assignment = self.assignment.clone();
                 let usage = self.usage.clone();
@@ -165,9 +165,9 @@ impl ToolSet for ExtractToolSet {
                             .unwrap()
                             .write_errors
                             .push((target_path, msg.clone()));
-                        ToolOutcome::err(msg)
+                        err(msg)
                     }
-                    Err(e) => ToolOutcome::err(format!("write_spec task panicked: {}", e)),
+                    Err(e) => err(format!("write_spec task panicked: {}", e)),
                 }
             }
 
@@ -186,19 +186,27 @@ impl ToolSet for ExtractToolSet {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
                 tools::report_progress(&self.assignment.id, status, message, completed, total);
-                ToolOutcome::ok(json!({ "acknowledged": true }).to_string())
+                ok(json!({ "acknowledged": true }).to_string())
             }
 
-            other => ToolOutcome::err(format!("unknown tool: {}", other)),
+            other => err(format!("unknown tool: {}", other)),
         }
     }
 }
 
 fn serde_outcome<T: serde::Serialize>(value: &T) -> ToolOutcome {
     match serde_json::to_string(value) {
-        Ok(s) => ToolOutcome::ok(s),
-        Err(e) => ToolOutcome::err(format!("serialization error: {}", e)),
+        Ok(s) => ok(s),
+        Err(e) => err(format!("serialization error: {}", e)),
     }
+}
+
+fn ok(s: impl Into<String>) -> ToolOutcome {
+    ToolOutcome::success_text(s)
+}
+
+fn err(s: impl Into<String>) -> ToolOutcome {
+    ToolOutcome::error(s, true)
 }
 
 fn tool_specs() -> Vec<ToolSpec> {

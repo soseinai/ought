@@ -11,8 +11,11 @@ categories.workspace = true
 
 [dependencies]
 ought-spec.workspace = true
-ought-llm.workspace = true
-ought-agent.workspace = true
+oharness-core.workspace = true
+oharness-llm.workspace = true
+oharness-providers.workspace = true
+oharness-tools.workspace = true
+oharness-loop.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true

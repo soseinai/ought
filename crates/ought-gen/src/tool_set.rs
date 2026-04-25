@@ -1,4 +1,4 @@
-//! [`ought_agent::ToolSet`] implementation that exposes the
+//! [`oharness_tools::ToolSet`] implementation that exposes the
 //! `ought_gen::tools` primitives to an in-process agent loop.
 //!
 //! Wraps the same primitives the MCP server uses, so behavior is
@@ -13,8 +13,8 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use ought_agent::{ToolOutcome, ToolSet};
-use ought_llm::ToolSpec;
+use oharness_tools::{ToolOutcome, ToolSet, ToolSpec};
+use oharness_tools::context::ToolContext;
 
 use crate::agent::AgentAssignment;
 use crate::manifest::Manifest;
@@ -82,7 +82,7 @@ impl ToolSet for GenerateToolSet {
         &self.specs
     }
 
-    async fn execute(&self, name: &str, input: Value) -> ToolOutcome {
+    async fn execute(&self, name: &str, input: Value, _ctx: &ToolContext) -> ToolOutcome {
         match name {
             "get_assignment" => {
                 let out = tools::get_assignment(&self.assignment);
@@ -92,7 +92,7 @@ impl ToolSet for GenerateToolSet {
             "read_source" => {
                 let path = match input.get("path").and_then(|v| v.as_str()) {
                     Some(p) => p.to_string(),
-                    None => return ToolOutcome::err("missing required argument: path"),
+                    None => return err("missing required argument: path"),
                 };
                 let start_line = input
                     .get("start_line")
@@ -110,8 +110,8 @@ impl ToolSet for GenerateToolSet {
                 .await
                 {
                     Ok(Ok(out)) => serde_outcome(&out),
-                    Ok(Err(e)) => ToolOutcome::err(e.to_string()),
-                    Err(e) => ToolOutcome::err(format!("read_source task panicked: {}", e)),
+                    Ok(Err(e)) => err(e.to_string()),
+                    Err(e) => err(format!("read_source task panicked: {}", e)),
                 }
             }
 
@@ -128,18 +128,18 @@ impl ToolSet for GenerateToolSet {
                 .await;
                 match out {
                     Ok(o) => serde_outcome(&o),
-                    Err(e) => ToolOutcome::err(format!("list task panicked: {}", e)),
+                    Err(e) => err(format!("list task panicked: {}", e)),
                 }
             }
 
             "write_test" => {
                 let clause_id = match input.get("clause_id").and_then(|v| v.as_str()) {
                     Some(s) => s.to_string(),
-                    None => return ToolOutcome::err("missing required argument: clause_id"),
+                    None => return err("missing required argument: clause_id"),
                 };
                 let code = match input.get("code").and_then(|v| v.as_str()) {
                     Some(s) => s.to_string(),
-                    None => return ToolOutcome::err("missing required argument: code"),
+                    None => return err("missing required argument: code"),
                 };
                 let assignment = self.assignment.clone();
                 let manifest = self.manifest.clone();
@@ -162,26 +162,26 @@ impl ToolSet for GenerateToolSet {
                             .unwrap()
                             .write_errors
                             .push((clause_id, msg.clone()));
-                        ToolOutcome::err(msg)
+                        err(msg)
                     }
-                    Err(e) => ToolOutcome::err(format!("write_test task panicked: {}", e)),
+                    Err(e) => err(format!("write_test task panicked: {}", e)),
                 }
             }
 
             "write_tests_batch" => {
                 let tests_arr = match input.get("tests").and_then(|v| v.as_array()) {
                     Some(a) => a.clone(),
-                    None => return ToolOutcome::err("missing required argument: tests (array)"),
+                    None => return err("missing required argument: tests (array)"),
                 };
                 let mut pairs: Vec<(String, String)> = Vec::with_capacity(tests_arr.len());
                 for t in &tests_arr {
                     let cid = match t.get("clause_id").and_then(|v| v.as_str()) {
                         Some(s) => s.to_string(),
-                        None => return ToolOutcome::err("each test must have clause_id"),
+                        None => return err("each test must have clause_id"),
                     };
                     let code = match t.get("code").and_then(|v| v.as_str()) {
                         Some(s) => s.to_string(),
-                        None => return ToolOutcome::err("each test must have code"),
+                        None => return err("each test must have code"),
                     };
                     pairs.push((cid, code));
                 }
@@ -211,7 +211,7 @@ impl ToolSet for GenerateToolSet {
                         drop(u);
                         serde_outcome(&out)
                     }
-                    Err(e) => ToolOutcome::err(format!("batch write task panicked: {}", e)),
+                    Err(e) => err(format!("batch write task panicked: {}", e)),
                 }
             }
 
@@ -222,7 +222,7 @@ impl ToolSet for GenerateToolSet {
                         .filter_map(|v| v.as_str().map(str::to_string))
                         .collect(),
                     None => {
-                        return ToolOutcome::err("missing required argument: clause_ids (array)");
+                        return err("missing required argument: clause_ids (array)");
                     }
                 };
                 let test_dir = PathBuf::from(&self.assignment.test_dir);
@@ -245,7 +245,7 @@ impl ToolSet for GenerateToolSet {
                             .count();
                         serde_outcome(&out)
                     }
-                    Err(e) => ToolOutcome::err(format!("check_compiles task panicked: {}", e)),
+                    Err(e) => err(format!("check_compiles task panicked: {}", e)),
                 }
             }
 
@@ -264,19 +264,30 @@ impl ToolSet for GenerateToolSet {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
                 tools::report_progress(&self.assignment.id, status, message, completed, total);
-                ToolOutcome::ok(json!({ "acknowledged": true }).to_string())
+                ok(json!({ "acknowledged": true }).to_string())
             }
 
-            other => ToolOutcome::err(format!("unknown tool: {}", other)),
+            other => err(format!("unknown tool: {}", other)),
         }
     }
 }
 
 fn serde_outcome<T: serde::Serialize>(value: &T) -> ToolOutcome {
     match serde_json::to_string(value) {
-        Ok(s) => ToolOutcome::ok(s),
-        Err(e) => ToolOutcome::err(format!("serialization error: {}", e)),
+        Ok(s) => ok(s),
+        Err(e) => err(format!("serialization error: {}", e)),
     }
+}
+
+/// Shim: `ought_agent::ToolOutcome::ok` → `oharness_tools::ToolOutcome::success_text`.
+fn ok(s: impl Into<String>) -> ToolOutcome {
+    ToolOutcome::success_text(s)
+}
+
+/// Shim: `ought_agent::ToolOutcome::err` → `oharness_tools::ToolOutcome::error(_, true)`.
+/// All ought-gen tool failures are recoverable — the model retries.
+fn err(s: impl Into<String>) -> ToolOutcome {
+    ToolOutcome::error(s, true)
 }
 
 /// JSON-Schema-shaped tool definitions sent to the model.

@@ -10,8 +10,9 @@ use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
-use ought_agent::{Agent, AgentConfig, AgentError, RunStatus};
-use ought_llm::Llm;
+use oharness_core::{CompletionReason, Task, Termination, TruncationLimit};
+use oharness_llm::Llm;
+use oharness_loop::{Agent, ReactLoop};
 
 use crate::config::GeneratorConfig;
 use crate::extract::{ExtractAssignment, ExtractReport, ExtractRunStatus};
@@ -46,15 +47,7 @@ impl ExtractOrchestrator {
         }
 
         let llm = crate::orchestrator::build_llm(&self.config)?;
-        let agent_cfg = AgentConfig {
-            model: self.config.model.clone(),
-            max_turns: self.config.max_turns,
-            max_tokens_per_response: self.config.max_tokens_per_response,
-            temperature: self.config.temperature,
-            context_budget_tokens: self.config.context_budget_tokens,
-            eviction_threshold_tokens: self.config.eviction_threshold_tokens,
-            ..AgentConfig::default()
-        };
+        let max_turns = self.config.max_turns;
         let read_source_limit = self.config.read_source_limit_bytes;
 
         let parallelism = self.config.parallelism.max(1);
@@ -64,12 +57,11 @@ impl ExtractOrchestrator {
         for assignment in assignments {
             let permit = sem.clone().acquire_owned().await?;
             let llm = llm.clone();
-            let agent_cfg = agent_cfg.clone();
             let verbose = self.verbose;
 
             tasks.spawn(async move {
                 let _permit = permit;
-                run_one_assignment(assignment, llm, agent_cfg, read_source_limit, verbose).await
+                run_one_assignment(assignment, llm, max_turns, read_source_limit, verbose).await
             });
         }
 
@@ -91,7 +83,7 @@ impl ExtractOrchestrator {
 async fn run_one_assignment(
     assignment: ExtractAssignment,
     llm: Arc<dyn Llm>,
-    agent_cfg: AgentConfig,
+    max_turns: u32,
     read_source_limit_bytes: usize,
     verbose: bool,
 ) -> ExtractReport {
@@ -105,13 +97,36 @@ async fn run_one_assignment(
         );
     }
 
-    let tools = ExtractToolSet::with_limits(assignment.clone(), read_source_limit_bytes);
+    let tools_concrete = Arc::new(ExtractToolSet::with_limits(
+        assignment.clone(),
+        read_source_limit_bytes,
+    ));
+    let tools_for_agent: Arc<dyn oharness_tools::ToolSet> = tools_concrete.clone();
+
     let system = build_system_prompt(&assignment);
     let initial = build_initial_user_message(&assignment);
 
-    let agent = Agent::new(llm, agent_cfg);
-    let result = agent.run(system, initial, &tools).await;
-    let usage_snapshot = tools.usage();
+    let agent = match Agent::builder()
+        .with_llm(llm)
+        .with_tools(tools_for_agent)
+        .with_loop(Box::new(ReactLoop::new().with_system_prompt(system)))
+        .with_max_turns(max_turns)
+        .build()
+    {
+        Ok(a) => a,
+        Err(e) => {
+            return ExtractReport {
+                assignment_id,
+                status: ExtractRunStatus::Errored,
+                errors: vec![format!("agent build: {}", e)],
+                ..ExtractReport::default()
+            };
+        }
+    };
+
+    let task = Task::new(initial).with_id(assignment_id.clone());
+    let result = agent.run(task).await;
+    let usage_snapshot = tools_concrete.usage();
 
     let mut report = ExtractReport {
         assignment_id: assignment_id.clone(),
@@ -122,17 +137,17 @@ async fn run_one_assignment(
 
     match result {
         Ok(outcome) => {
-            report.status = match outcome.status {
-                RunStatus::Completed => ExtractRunStatus::Completed,
-                RunStatus::MaxTurnsExceeded => ExtractRunStatus::MaxTurnsExceeded,
-                RunStatus::Truncated => ExtractRunStatus::Truncated,
-                RunStatus::ContextExhausted => ExtractRunStatus::ContextExhausted,
-            };
-            report.turns = outcome.turns;
-            report.usage_input_tokens = outcome.usage.input_tokens;
-            report.usage_output_tokens = outcome.usage.output_tokens;
-            report.usage_cache_read_tokens = outcome.usage.cache_read_tokens;
-            report.usage_cache_creation_tokens = outcome.usage.cache_creation_tokens;
+            report.status = map_termination(&outcome.termination);
+            report.turns = outcome.usage.turns;
+            report.usage_input_tokens = outcome.usage.tokens_input as u32;
+            report.usage_output_tokens = outcome.usage.tokens_output as u32;
+            report.usage_cache_read_tokens = outcome.usage.tokens_cache_read as u32;
+            report.usage_cache_creation_tokens = outcome.usage.tokens_cache_create as u32;
+            if matches!(report.status, ExtractRunStatus::Errored)
+                && let Termination::Failed { error, .. } = &outcome.termination
+            {
+                report.errors.push(error.message.clone());
+            }
             if verbose {
                 eprintln!(
                     "  [extract agent {}] finished: {} written, {} write errors, {} turns",
@@ -143,19 +158,37 @@ async fn run_one_assignment(
                 );
             }
         }
-        Err(AgentError::Llm { attempts, source }) => {
+        Err(e) => {
             report.status = ExtractRunStatus::Errored;
-            report.errors.push(format!(
-                "agent loop failed after {} attempt(s): {}",
-                attempts, source
-            ));
+            report.errors.push(format!("agent loop failed: {}", e));
             if verbose {
-                eprintln!("  [extract agent {}] errored: {}", assignment_id, source);
+                eprintln!("  [extract agent {}] errored: {}", assignment_id, e);
             }
         }
     }
 
     report
+}
+
+fn map_termination(t: &Termination) -> ExtractRunStatus {
+    match t {
+        Termination::Completed {
+            reason: CompletionReason::EndTurn | CompletionReason::StopSequence(_),
+        } => ExtractRunStatus::Completed,
+        Termination::Truncated {
+            limit: TruncationLimit::MaxTurns(_),
+        } => ExtractRunStatus::MaxTurnsExceeded,
+        Termination::Truncated {
+            limit: TruncationLimit::MaxTokens,
+        } => ExtractRunStatus::Truncated,
+        Termination::Truncated {
+            limit: TruncationLimit::Budget(_),
+        } => ExtractRunStatus::ContextExhausted,
+        Termination::Truncated {
+            limit: TruncationLimit::Timeout,
+        } => ExtractRunStatus::Errored,
+        Termination::Failed { .. } | Termination::Interrupted { .. } => ExtractRunStatus::Errored,
+    }
 }
 
 fn build_system_prompt(assignment: &ExtractAssignment) -> String {

@@ -3,8 +3,6 @@ resolver = "2"
 members = [
     "crates/ought-core",
     "crates/ought-spec",
-    "crates/ought-llm",
-    "crates/ought-agent",
     "crates/ought-gen",
     "crates/ought-run",
     "crates/ought-report",
@@ -27,8 +25,6 @@ categories = ["development-tools::testing"]
 [workspace.dependencies]
 ought-core = { path = "crates/ought-core", version = "0.2.0" }
 ought-spec = { path = "crates/ought-spec", version = "0.2.0" }
-ought-llm = { path = "crates/ought-llm", version = "0.2.0" }
-ought-agent = { path = "crates/ought-agent", version = "0.2.0" }
 ought-gen = { path = "crates/ought-gen", version = "0.2.0" }
 ought-run = { path = "crates/ought-run", version = "0.2.0" }
 ought-report = { path = "crates/ought-report", version = "0.2.0" }
@@ -37,6 +33,14 @@ ought-mcp = { path = "crates/ought-mcp", version = "0.2.0" }
 ought-server = { path = "crates/ought-server", version = "0.2.0" }
 # The CLI package is named `ought` (binary + thin library for its `Config`).
 ought = { path = "crates/ought-cli", version = "0.2.0" }
+
+# Sibling open-harness repo — the LLM + agent framework ought-gen builds on.
+# Path-only until open-harness is published; pin cuts across ought's workspace.
+oharness-core = { path = "../open-harness/crates/oharness-core" }
+oharness-llm = { path = "../open-harness/crates/oharness-llm" }
+oharness-providers = { path = "../open-harness/crates/oharness-providers", default-features = false, features = ["anthropic", "openai", "openrouter", "ollama"] }
+oharness-tools = { path = "../open-harness/crates/oharness-tools", default-features = false }
+oharness-loop = { path = "../open-harness/crates/oharness-loop", default-features = false, features = ["react"] }
 
 anyhow = "1"
 thiserror = "2"
