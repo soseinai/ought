@@ -19,7 +19,12 @@ use crate::extract_tool_set::ExtractToolSet;
 
 /// The canonical `.ought.md` grammar, embedded at compile time so agents
 /// draft against the grammar that matches this binary's parser.
-const GRAMMAR_MD: &str = include_str!("../../../docs/grammar.md");
+///
+/// `grammar.md` is a symlink to `../../docs/grammar.md` — the symlink keeps
+/// the path inside the crate so `cargo publish`'s tarball verification can
+/// find the file (cargo dereferences symlinks during packaging, so the
+/// published `.crate` ships the actual grammar contents).
+const GRAMMAR_MD: &str = include_str!("../grammar.md");
 
 pub struct ExtractOrchestrator {
     config: GeneratorConfig,
