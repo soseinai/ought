@@ -16,7 +16,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0-rc3"
+version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/soseinai/ought"
@@ -25,18 +25,18 @@ keywords = ["testing", "specs", "llm", "behavioral", "deontic"]
 categories = ["development-tools::testing"]
 
 [workspace.dependencies]
-ought-core = { path = "crates/ought-core", version = "0.2.0-rc3" }
-ought-spec = { path = "crates/ought-spec", version = "0.2.0-rc3" }
-ought-llm = { path = "crates/ought-llm", version = "0.2.0-rc3" }
-ought-agent = { path = "crates/ought-agent", version = "0.2.0-rc3" }
-ought-gen = { path = "crates/ought-gen", version = "0.2.0-rc3" }
-ought-run = { path = "crates/ought-run", version = "0.2.0-rc3" }
-ought-report = { path = "crates/ought-report", version = "0.2.0-rc3" }
-ought-analysis = { path = "crates/ought-analysis", version = "0.2.0-rc3" }
-ought-mcp = { path = "crates/ought-mcp", version = "0.2.0-rc3" }
-ought-server = { path = "crates/ought-server", version = "0.2.0-rc3" }
+ought-core = { path = "crates/ought-core", version = "0.2.0" }
+ought-spec = { path = "crates/ought-spec", version = "0.2.0" }
+ought-llm = { path = "crates/ought-llm", version = "0.2.0" }
+ought-agent = { path = "crates/ought-agent", version = "0.2.0" }
+ought-gen = { path = "crates/ought-gen", version = "0.2.0" }
+ought-run = { path = "crates/ought-run", version = "0.2.0" }
+ought-report = { path = "crates/ought-report", version = "0.2.0" }
+ought-analysis = { path = "crates/ought-analysis", version = "0.2.0" }
+ought-mcp = { path = "crates/ought-mcp", version = "0.2.0" }
+ought-server = { path = "crates/ought-server", version = "0.2.0" }
 # The CLI package is named `ought` (binary + thin library for its `Config`).
-ought = { path = "crates/ought-cli", version = "0.2.0-rc3" }
+ought = { path = "crates/ought-cli", version = "0.2.0" }
 
 anyhow = "1"
 thiserror = "2"
