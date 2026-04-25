@@ -11,7 +11,7 @@ Ought ships as a single static binary. Pick whichever installer matches your env
 The shell installer detects your platform and architecture and downloads the right binary.
 
 ```sh
-curl -sS https://raw.githubusercontent.com/soseinai/ought/main/install.sh | sh
+curl -sS https://sosein.ai/install.sh | sh
 ```
 
 This installs `ought` into `~/.local/bin`. Add that directory to your `PATH` if it isn't already.

@@ -3,7 +3,7 @@
 # https://github.com/soseinai/ought
 #
 # Usage:
-#   curl -sS https://raw.githubusercontent.com/soseinai/ought/main/install.sh | sh
+#   curl -sS https://sosein.ai/install.sh | sh
 #
 # Environment variables:
 #   OUGHT_VERSION     install a specific version (e.g. v0.1.0). Default: latest

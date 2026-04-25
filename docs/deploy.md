@@ -25,7 +25,7 @@ A single click produces all of the following automatically:
 | Channel | Install command | What it ships |
 |---|---|---|
 | **GitHub Releases** | _direct download_ | Prebuilt `.tar.gz` for 4 targets: x86_64-linux-gnu, aarch64-linux-gnu, x86_64-darwin, aarch64-darwin |
-| **Shell installer** | `curl -sS https://raw.githubusercontent.com/soseinai/ought/main/install.sh \| sh` | Downloads the right binary for the user's OS+arch from GitHub Releases |
+| **Shell installer** | `curl -sS https://sosein.ai/install.sh \| sh` | Downloads the right binary for the user's OS+arch from GitHub Releases |
 | **Homebrew tap** | `brew install soseinai/tap/ought` | Downloads the prebuilt binary for the user's OS+arch from GitHub Releases via the formula in [`soseinai/homebrew-tap`](https://github.com/soseinai/homebrew-tap), auto-bumped on each release. Installs in seconds; no Rust toolchain required |
 | **crates.io** | `cargo install ought` | Source distribution; user compiles locally. All 8 workspace crates are published |
 
@@ -364,7 +364,7 @@ done
 gh api repos/soseinai/homebrew-tap/commits --jq '.[0:2] | .[] | {sha: .sha[0:8], msg: .commit.message, author: .commit.author.name}'
 
 # 4. The shell installer fetches the right version
-curl -sS https://raw.githubusercontent.com/soseinai/ought/main/install.sh | OUGHT_INSTALL_DIR=/tmp/ought-test sh
+curl -sS https://sosein.ai/install.sh | OUGHT_INSTALL_DIR=/tmp/ought-test sh
 /tmp/ought-test/ought --version
 
 # 5. brew install actually works

@@ -19,13 +19,13 @@ Ought maintains a three-way sync between intent (`.ought.md` specs), source code
 **Shell installer (Linux + macOS, recommended):**
 
 ```
-curl -sS https://raw.githubusercontent.com/soseinai/ought/main/install.sh | sh
+curl -sS https://sosein.ai/install.sh | sh
 ```
 
 This downloads a prebuilt binary for your platform and installs it to `~/.local/bin/ought`.
 Pin a version with `OUGHT_VERSION=v0.1.0` or change the install location with
 `OUGHT_INSTALL_DIR=/usr/local/bin`. Inspect the script before running with
-`curl -sS https://raw.githubusercontent.com/soseinai/ought/main/install.sh | less`.
+`curl -sS https://sosein.ai/install.sh | less`.
 
 **Homebrew:**
 
