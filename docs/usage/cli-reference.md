@@ -70,6 +70,21 @@ Show the diff between the current generated tests and what would be produced by 
 ought diff
 ```
 
+## ought extract
+
+Reverse-engineer `.ought.md` spec drafts from your existing source. Audits whatever specs you already have (rule-based, no LLM), then dispatches LLM agents to draft new specs for uncovered source areas.
+
+```sh
+ought extract                           # extract from configured [context].search_paths
+ought extract src/auth/ src/billing/    # limit to specific source paths
+ought extract --dry-run                 # print drafts to stdout instead of writing files
+ought extract --out specs/drafts/       # write drafts somewhere other than the first [specs].roots entry
+ought extract --force                   # overwrite existing .ought.md files
+ought extract --no-audit                # skip the audit phase over existing specs
+ought extract --model claude-opus-4-7   # override the configured generator model
+ought extract --parallelism 4           # cap concurrent agents
+```
+
 ## ought watch
 
 Watch for file changes and re-run affected specs.
@@ -91,14 +106,6 @@ ought view --no-open
 ## ought analyze
 
 Spec-level analysis commands.
-
-### ought analyze audit
-
-Detect contradictions, gaps, and coherence issues across specs.
-
-```sh
-ought analyze audit
-```
 
 ### ought analyze survey
 
@@ -144,7 +151,6 @@ Start the MCP server.
 ```sh
 ought mcp serve                                    # stdio transport (for local IDE integration)
 ought mcp serve --transport sse --port 8765       # SSE transport for remote clients
-ought mcp serve --mode generation --assignment path/to/assignment.json
 ```
 
 ### ought mcp install

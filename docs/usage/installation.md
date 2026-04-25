@@ -11,10 +11,21 @@ Ought ships as a single static binary. Pick whichever installer matches your env
 The shell installer detects your platform and architecture and downloads the right binary.
 
 ```sh
-curl -sS https://sosein.ai/install.sh | sh
+curl -sS https://raw.githubusercontent.com/soseinai/ought/main/install.sh | sh
 ```
 
 This installs `ought` into `~/.local/bin`. Add that directory to your `PATH` if it isn't already.
+Pin a version with `OUGHT_VERSION=v0.1.0` or change the install location with `OUGHT_INSTALL_DIR=/usr/local/bin`.
+
+## Python (pipx)
+
+If your environment is already Python-centric, install via [pipx](https://pipx.pypa.io/):
+
+```sh
+pipx install ought
+```
+
+This puts `ought` on your `PATH` in its own isolated venv. Plain `pip install ought` works too if you're inside a virtualenv.
 
 ## Cargo
 
