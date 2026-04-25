@@ -174,8 +174,6 @@ jobs:
             os: macos-latest
           - target: aarch64-apple-darwin
             os: macos-latest
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -258,11 +256,14 @@ jobs:
           merge-multiple: true
           path: dist
 
+      - uses: astral-sh/setup-uv@v5
+
+      # `maturin upload` is deprecated upstream (PyO3/maturin#2334) in favor of
+      # `uv publish` / `twine`. uv picks up the OIDC token from the `pypi`
+      # environment + `id-token: write` automatically when --trusted-publishing
+      # is `always`. --check-url gives us the old --skip-existing behavior.
       - name: Publish to PyPI
-        uses: PyO3/maturin-action@v1
-        with:
-          command: upload
-          args: --non-interactive --skip-existing dist/*.whl
+        run: uv publish --trusted-publishing always --check-url https://pypi.org/simple/ought/ dist/*.whl
 
   bump-homebrew:
     needs: release
