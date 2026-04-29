@@ -22,7 +22,7 @@ exclude = ["vendor/", "generated/"]
 max_files = 50
 
 [generator]
-provider = "anthropic"          # "anthropic" | "openai" | "openrouter" | "ollama"
+provider = "anthropic"          # "anthropic" | "openai" | "openai-codex" | "openrouter" | "ollama"
 model = "claude-sonnet-4-6"
 max_turns = 50
 parallelism = 1
@@ -75,7 +75,7 @@ LLM provider, model, and agent-loop limits.
 
 | Key                         | Default              | Notes                                                                |
 | --------------------------- | -------------------- | -------------------------------------------------------------------- |
-| `provider`                  | `"anthropic"`        | One of `anthropic`, `openai`, `openrouter`, `ollama`.                |
+| `provider`                  | `"anthropic"`        | One of `anthropic`, `openai`, `openai-codex`, `openrouter`, `ollama`. |
 | `model`                     | `"claude-sonnet-4-6"`| Provider-specific model identifier.                                  |
 | `max_turns`                 | `50`                 | Cap on agent-loop iterations per clause.                             |
 | `max_tokens_per_response`   | `8192`               | Per-response token cap.                                              |
@@ -97,6 +97,11 @@ api_key_env = "ANTHROPIC_API_KEY"
 [generator.openai]
 api_key_env = "OPENAI_API_KEY"
 # base_url = "https://api.openai.com/v1"
+
+[generator.openai-codex]
+# Run `ought auth login openai-codex` first.
+# auth_file = "/absolute/path/to/auth.json" # defaults to $OUGHT_AUTH_FILE or ~/.ought/auth.json
+# base_url = "https://chatgpt.com/backend-api"
 
 [generator.openrouter]
 api_key_env = "OPENROUTER_API_KEY"

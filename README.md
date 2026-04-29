@@ -225,17 +225,21 @@ The engine has four phases. **Parse** converts `.ought.md` files into a structur
 
 ## LLM Providers
 
-Ought invokes LLM CLIs directly by exec-ing `claude`, `chatgpt`, or `ollama` -- no API keys to manage in ought itself. Use your consumer account, pro plan, or API key as you normally would with the CLI tool.
+Ought runs its generator loop in-process through `open-harness` providers. Anthropic, OpenAI, and OpenRouter use API keys from environment variables; Ollama uses a local OpenAI-compatible endpoint; OpenAI Codex uses ChatGPT/Codex OAuth via `ought auth login openai-codex`.
 
 Configure the provider in `ought.toml`:
 
 ```toml
 [generator]
-provider = "anthropic"       # or "openai", "ollama"
+provider = "anthropic"       # or "openai", "openai-codex", "openrouter", "ollama"
 model = "claude-sonnet-4-6"
 ```
 
-Custom providers are supported by specifying an arbitrary executable.
+For ChatGPT/Codex subscription auth:
+
+```bash
+ought auth login openai-codex
+```
 
 ## Analysis Commands
 

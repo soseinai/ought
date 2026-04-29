@@ -27,6 +27,7 @@ ought-report.workspace = true
 ought-analysis.workspace = true
 ought-mcp.workspace = true
 ought-server.workspace = true
+oharness-providers.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true

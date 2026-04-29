@@ -250,9 +250,9 @@ Takes parsed clause IR plus source code context and uses an LLM to produce concr
 
 **Architecture: ought-as-harness, not subprocess-as-harness.** The agent is genuinely agentic — the model decides which tool to call next, when to read more source, when to retry, when it's done — but the loop runs *inside* ought rather than inside a separate `claude` / `chatgpt` CLI subprocess. Tools (`read_source`, `write_test`, `check_compiles`, etc.) are plain Rust functions in `ought-gen::tools`; the loop dispatches model-emitted tool-use blocks to them directly. No MCP plumbing on the hot path; no subprocess to coordinate with; tools are unit-testable; the same primitives can be re-exported via MCP for *external* agents that want to drive ought.
 
-- Ships with Anthropic (Messages API), OpenAI (Chat Completions), OpenRouter (OpenAI-compatible with attribution headers), and Ollama (OpenAI-compatible local) providers.
+- Ships with Anthropic (Messages API), OpenAI (Chat Completions), OpenAI Codex (ChatGPT/Codex OAuth), OpenRouter (OpenAI-compatible with attribution headers), and Ollama (OpenAI-compatible local) providers.
 - Custom providers by adding a new `Llm` impl in `ought-llm` or via OpenAI-compatible endpoints with a custom base URL.
-- Auth via env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`); Ollama needs no auth. No keys live in `ought.toml`.
+- Auth via env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`), or `ought auth login openai-codex` for ChatGPT/Codex OAuth; Ollama needs no auth. No API keys live in `ought.toml`.
 
 This is a deliberate reversal of the earlier "exec a CLI to inherit the user's auth session" design. The CLI-exec approach only ever worked for Claude in practice; supporting OpenAI / OpenRouter / local models meant writing per-CLI invocation shims with subtly different flag conventions — strictly more work than calling four well-documented HTTP APIs. The agent loop itself is small (~300 LOC) and gives ought direct control over prompt caching, retry policy, turn budgets, and observability.
 
@@ -508,7 +508,7 @@ exclude = ["vendor/", "generated/"]
 max_files = 50
 
 [generator]
-provider = "anthropic"       # or "openai", "openrouter", "ollama"
+provider = "anthropic"       # or "openai", "openai-codex", "openrouter", "ollama"
 model = "claude-sonnet-4-6"
 max_turns = 50               # cap on agent-loop iterations per assignment
 parallelism = 1
@@ -520,6 +520,9 @@ api_key_env = "ANTHROPIC_API_KEY"
 # Only the block matching `provider` above is read; the rest are ignored.
 # [generator.openai]
 #   api_key_env = "OPENAI_API_KEY"
+# [generator.openai-codex]
+#   auth_file = "/absolute/path/to/auth.json"  # optional; defaults to ~/.ought/auth.json
+#   base_url = "https://chatgpt.com/backend-api"
 # [generator.openrouter]
 #   api_key_env = "OPENROUTER_API_KEY"
 #   app_url = "https://example.com"
@@ -622,10 +625,8 @@ The engine is written in Rust. Key dependencies (anticipated):
 ought/
   crates/
     ought-spec/        # parser + clause IR (the standard)
-    ought-llm/         # provider-agnostic Llm trait + adapters
-                       #   (Anthropic, OpenAI, OpenRouter, Ollama)
-    ought-agent/       # in-process agent loop + ToolSet trait
     ought-gen/         # generation orchestrator + tool primitives
+                       #   (via open-harness providers + agent loop)
     ought-run/         # runner trait + language runners
     ought-report/      # reporter + TUI
     ought-analysis/    # survey, audit, blame, bisect

@@ -32,9 +32,9 @@ search_paths = ["src/"]
 exclude = ["target/", "ought/ought-gen/"]
 
 [generator]
-# Pick one: anthropic | openai | openrouter | ollama
-provider = "anthropic"
-model = "claude-sonnet-4-6"
+	# Pick one: anthropic | openai | openai-codex | openrouter | ollama
+	provider = "anthropic"
+	model = "claude-sonnet-4-6"
 # parallelism = 1
 # max_turns = 50
 
@@ -43,10 +43,16 @@ model = "claude-sonnet-4-6"
 [generator.anthropic]
 api_key_env = "ANTHROPIC_API_KEY"
 
-# [generator.openai]
-# api_key_env = "OPENAI_API_KEY"
-#
-# [generator.openrouter]
+	# [generator.openai]
+	# api_key_env = "OPENAI_API_KEY"
+	#
+	# ChatGPT/Codex subscription auth:
+	#   ought auth login openai-codex
+	# [generator.openai-codex]
+	# # auth_file = "/absolute/path/to/auth.json" # defaults to $OUGHT_AUTH_FILE or ~/.ought/auth.json
+	# # base_url = "https://chatgpt.com/backend-api"
+	#
+	# [generator.openrouter]
 # api_key_env = "OPENROUTER_API_KEY"
 # app_url = "https://example.com"
 # app_title = "{name}"

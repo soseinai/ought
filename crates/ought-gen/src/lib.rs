@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod auth;
 pub mod config;
 pub mod extract;
 pub mod extract_orchestrator;
@@ -10,12 +11,10 @@ pub mod orchestrator;
 pub mod tool_set;
 pub mod tools;
 
-pub use agent::{
-    AgentAssignment, AgentReport, AgentRunStatus, AssignmentClause, AssignmentGroup,
-};
+pub use agent::{AgentAssignment, AgentReport, AgentRunStatus, AssignmentClause, AssignmentGroup};
 pub use config::{
-    AnthropicConfig, GeneratorConfig, OllamaConfig, OpenAiConfig, OpenRouterConfig, Provider,
-    ToleranceConfig,
+    AnthropicConfig, GeneratorConfig, OllamaConfig, OpenAiCodexConfig, OpenAiConfig,
+    OpenRouterConfig, Provider, ToleranceConfig,
 };
 pub use extract::{ExtractAssignment, ExtractGroup, ExtractReport, ExtractRunStatus};
 pub use extract_orchestrator::ExtractOrchestrator;

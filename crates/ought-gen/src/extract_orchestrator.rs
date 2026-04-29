@@ -46,7 +46,7 @@ impl ExtractOrchestrator {
             return Ok(vec![]);
         }
 
-        let llm = crate::orchestrator::build_llm(&self.config)?;
+        let llm = crate::orchestrator::build_llm(&self.config).await?;
         let max_turns = self.config.max_turns;
         let read_source_limit = self.config.read_source_limit_bytes;
 

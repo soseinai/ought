@@ -10,8 +10,8 @@ search_paths = ["src/"]
 exclude = ["target/", "ought/ought-gen/"]
 
 [generator]
-provider = "anthropic"
-model = "claude-sonnet-4-6"
+provider = "openai-codex"
+model = "gpt-5.5"
 
 # Runners are CliRunners configured via `ought.toml`.
 #

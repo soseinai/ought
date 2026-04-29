@@ -76,15 +76,12 @@ impl Orchestrator {
     /// reference is dropped on return; callers holding their own Arc
     /// can then `Arc::try_unwrap` to recover the manifest for final
     /// persistence.
-    pub async fn run(
-        self,
-        assignments: Vec<AgentAssignment>,
-    ) -> anyhow::Result<Vec<AgentReport>> {
+    pub async fn run(self, assignments: Vec<AgentAssignment>) -> anyhow::Result<Vec<AgentReport>> {
         if assignments.is_empty() {
             return Ok(vec![]);
         }
 
-        let llm = build_llm(&self.config)?;
+        let llm = build_llm(&self.config).await?;
         let max_turns = self.config.max_turns;
         let read_source_limit = self.config.read_source_limit_bytes;
 
@@ -249,14 +246,17 @@ fn map_termination(t: &Termination) -> AgentRunStatus {
     }
 }
 
-pub(crate) fn build_llm(config: &GeneratorConfig) -> anyhow::Result<Arc<dyn Llm>> {
+pub(crate) async fn build_llm(config: &GeneratorConfig) -> anyhow::Result<Arc<dyn Llm>> {
     fn require_env(var: &str) -> anyhow::Result<String> {
         std::env::var(var).map_err(|_| {
-            anyhow::anyhow!("{} not set; export it or change provider in ought.toml", var)
+            anyhow::anyhow!(
+                "{} not set; export it or change provider in ought.toml",
+                var
+            )
         })
     }
 
-    use oharness_providers::{AnthropicLlm, OpenAiLlm};
+    use oharness_providers::{AnthropicLlm, OpenAiCodexLlm, OpenAiLlm};
 
     match config.provider {
         Provider::Anthropic => {
@@ -271,6 +271,17 @@ pub(crate) fn build_llm(config: &GeneratorConfig) -> anyhow::Result<Arc<dyn Llm>
             let key = require_env(&config.openai.api_key_env)?;
             let mut llm = OpenAiLlm::new(key, config.model.clone());
             if let Some(url) = &config.openai.base_url {
+                llm = llm.with_base_url(url.clone());
+            }
+            Ok(Arc::new(llm))
+        }
+        Provider::OpenaiCodex => {
+            let (_, credentials) = crate::auth::load_openai_codex_credentials(
+                config.openai_codex.auth_file.as_deref(),
+            )
+            .await?;
+            let mut llm = OpenAiCodexLlm::new(credentials.auth(), config.model.clone());
+            if let Some(url) = &config.openai_codex.base_url {
                 llm = llm.with_base_url(url.clone());
             }
             Ok(Arc::new(llm))

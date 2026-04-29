@@ -7,7 +7,11 @@ use ought_report::types::ColorChoice as ReportColor;
 mod commands;
 
 #[derive(Parser)]
-#[command(name = "ought", version, about = "Behavioral test framework powered by LLMs")]
+#[command(
+    name = "ought",
+    version,
+    about = "Behavioral test framework powered by LLMs"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -65,6 +69,9 @@ enum Command {
 
     /// Investigate failing clauses with git history.
     Debug(DebugArgs),
+
+    /// Manage provider sign-ins and local credentials.
+    Auth(AuthArgs),
 
     /// Watch for file changes and re-run affected specs.
     Watch,
@@ -189,6 +196,36 @@ struct DebugArgs {
     command: DebugCommand,
 }
 
+#[derive(clap::Args)]
+struct AuthArgs {
+    #[command(subcommand)]
+    command: AuthCommand,
+}
+
+#[derive(Subcommand)]
+enum AuthCommand {
+    /// Sign in to a provider.
+    Login(AuthProviderArgs),
+
+    /// Show configured auth without printing secrets.
+    Status,
+
+    /// Remove stored provider credentials.
+    Logout(AuthProviderArgs),
+}
+
+#[derive(clap::Args)]
+struct AuthProviderArgs {
+    #[arg(value_enum)]
+    provider: AuthProvider,
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum AuthProvider {
+    #[value(name = "openai-codex")]
+    OpenAiCodex,
+}
+
 #[derive(Subcommand)]
 enum DebugCommand {
     /// Explain why a clause is failing using git history.
@@ -265,6 +302,7 @@ fn main() -> anyhow::Result<()> {
             DebugCommand::Blame(args) => commands::blame::run(&cli, args),
             DebugCommand::Bisect(args) => commands::bisect::run(&cli, args),
         },
+        Command::Auth(args) => commands::auth::run(&args.command),
         Command::Watch => commands::watch::run(&cli),
         Command::View { port, no_open } => commands::view::run(&cli, *port, *no_open),
         Command::Mcp(args) => commands::mcp::run(&cli, &args.command),

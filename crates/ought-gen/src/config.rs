@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// Configuration for the LLM test generator.
 ///
@@ -58,6 +59,10 @@ pub struct GeneratorConfig {
     #[serde(default)]
     pub openai: OpenAiConfig,
 
+    /// OpenAI Codex / ChatGPT OAuth settings. Used when `provider = "openai-codex"`.
+    #[serde(default, rename = "openai-codex")]
+    pub openai_codex: OpenAiCodexConfig,
+
     /// OpenRouter-provider settings. Used when `provider = "openrouter"`.
     #[serde(default)]
     pub openrouter: OpenRouterConfig,
@@ -82,6 +87,7 @@ impl Default for GeneratorConfig {
             parallelism: default_parallelism(),
             anthropic: AnthropicConfig::default(),
             openai: OpenAiConfig::default(),
+            openai_codex: OpenAiCodexConfig::default(),
             openrouter: OpenRouterConfig::default(),
             ollama: OllamaConfig::default(),
         }
@@ -94,6 +100,8 @@ impl Default for GeneratorConfig {
 pub enum Provider {
     Anthropic,
     Openai,
+    #[serde(rename = "openai-codex")]
+    OpenaiCodex,
     Openrouter,
     Ollama,
 }
@@ -132,6 +140,16 @@ impl Default for OpenAiConfig {
             base_url: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct OpenAiCodexConfig {
+    /// Optional path to `auth.json`. Defaults to `$OUGHT_AUTH_FILE` or
+    /// `~/.ought/auth.json`.
+    #[serde(default)]
+    pub auth_file: Option<PathBuf>,
+    #[serde(default)]
+    pub base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -212,4 +230,34 @@ fn default_openai_key_env() -> String {
 }
 fn default_openrouter_key_env() -> String {
     "OPENROUTER_API_KEY".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_openai_codex_provider_and_table() {
+        let cfg: GeneratorConfig = toml::from_str(
+            r#"
+            provider = "openai-codex"
+            model = "gpt-5.2-codex"
+
+            [openai-codex]
+            auth_file = "/tmp/ought-auth.json"
+            base_url = "https://chatgpt.com/backend-api"
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(cfg.provider, Provider::OpenaiCodex);
+        assert_eq!(
+            cfg.openai_codex.auth_file.unwrap(),
+            PathBuf::from("/tmp/ought-auth.json")
+        );
+        assert_eq!(
+            cfg.openai_codex.base_url.as_deref(),
+            Some("https://chatgpt.com/backend-api")
+        );
+    }
 }

@@ -1,13 +1,14 @@
 //! Shared helpers and per-command modules for the `ought` CLI.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use ought_cli::config::Config;
 use ought_gen::manifest::Manifest;
 use ought_run::runners;
 use ought_spec::SpecGraph;
 
+pub mod auth;
 pub mod bisect;
 pub mod blame;
 pub mod check;
@@ -39,7 +40,12 @@ pub fn load_config(config_path: &Option<PathBuf>) -> anyhow::Result<(PathBuf, Co
 /// containing `ought.toml`).
 pub fn resolve_spec_roots(config: &Config, config_path: &Path) -> Vec<PathBuf> {
     let config_dir = config_path.parent().unwrap_or(Path::new("."));
-    config.specs.roots.iter().map(|r| config_dir.join(r)).collect()
+    config
+        .specs
+        .roots
+        .iter()
+        .map(|r| config_dir.join(r))
+        .collect()
 }
 
 /// Load and parse all specs from config roots.
@@ -53,7 +59,12 @@ pub fn load_specs(config: &Config, config_path: &Path) -> anyhow::Result<SpecGra
 
 /// The first configured runner's name, defaulting to "rust".
 pub fn primary_runner_name(config: &Config) -> String {
-    config.runner.keys().next().cloned().unwrap_or("rust".into())
+    config
+        .runner
+        .keys()
+        .next()
+        .cloned()
+        .unwrap_or("rust".into())
 }
 
 /// The first configured runner's `test_dir`, resolved against the config
@@ -95,6 +106,7 @@ pub fn resolve_primary_runner(
 
 /// A section group ready for agent-based generation.
 pub struct SectionGroup<'a> {
+    pub spec_path: PathBuf,
     pub section_path: String,
     pub testable_clauses: Vec<&'a ought_spec::Clause>,
     pub conditions: Vec<String>,
@@ -108,7 +120,13 @@ pub fn collect_section_groups(specs: &SpecGraph) -> Vec<SectionGroup<'_>> {
     let mut groups = Vec::new();
     for spec in specs.specs() {
         let source_paths = spec.metadata.sources.clone();
-        collect_groups_from_sections(&spec.sections, &spec.name, &source_paths, &mut groups);
+        collect_groups_from_sections(
+            &spec.sections,
+            &spec.name,
+            &spec.source_path,
+            &source_paths,
+            &mut groups,
+        );
     }
     groups
 }
@@ -116,6 +134,7 @@ pub fn collect_section_groups(specs: &SpecGraph) -> Vec<SectionGroup<'_>> {
 fn collect_groups_from_sections<'a>(
     sections: &'a [ought_spec::Section],
     parent_path: &str,
+    spec_path: &Path,
     source_paths: &[String],
     groups: &mut Vec<SectionGroup<'a>>,
 ) {
@@ -141,6 +160,7 @@ fn collect_groups_from_sections<'a>(
 
         if !testable.is_empty() {
             groups.push(SectionGroup {
+                spec_path: spec_path.to_path_buf(),
                 section_path: section_path.clone(),
                 testable_clauses: testable,
                 conditions,
@@ -148,8 +168,122 @@ fn collect_groups_from_sections<'a>(
             });
         }
 
-        collect_groups_from_sections(&section.subsections, &section_path, source_paths, groups);
+        collect_groups_from_sections(
+            &section.subsections,
+            &section_path,
+            spec_path,
+            source_paths,
+            groups,
+        );
     }
+}
+
+/// Keep only groups from the requested spec path or glob-like pattern.
+pub fn filter_section_groups_by_path<'a>(
+    groups: Vec<SectionGroup<'a>>,
+    config_path: &Path,
+    pattern: &str,
+) -> anyhow::Result<Vec<SectionGroup<'a>>> {
+    let config_dir = config_path.parent().unwrap_or(Path::new("."));
+    let filtered: Vec<SectionGroup<'a>> = groups
+        .into_iter()
+        .filter(|group| spec_path_matches(&group.spec_path, config_dir, pattern))
+        .collect();
+
+    if filtered.is_empty() {
+        anyhow::bail!("no spec files matched '{}'", pattern);
+    }
+
+    Ok(filtered)
+}
+
+fn spec_path_matches(spec_path: &Path, config_dir: &Path, pattern: &str) -> bool {
+    let config_dir = normalize_path(config_dir);
+    let spec_path = normalize_path(spec_path);
+    let raw_pattern = Path::new(pattern);
+    let rooted_pattern = if raw_pattern.is_absolute() {
+        raw_pattern.to_path_buf()
+    } else {
+        config_dir.join(raw_pattern)
+    };
+    let rooted_pattern = normalize_path(&rooted_pattern);
+
+    let relative_spec = spec_path
+        .strip_prefix(&config_dir)
+        .map(normalize_path)
+        .unwrap_or_else(|_| spec_path.clone());
+    let raw_pattern = normalize_path(raw_pattern);
+
+    if !pattern.contains('*') {
+        return spec_path == rooted_pattern
+            || spec_path.starts_with(&rooted_pattern)
+            || relative_spec == raw_pattern
+            || relative_spec.starts_with(&raw_pattern);
+    }
+
+    let spec_abs = path_to_slash(&spec_path);
+    let spec_rel = path_to_slash(&relative_spec);
+    let pattern_abs = path_to_slash(&rooted_pattern);
+    let pattern_rel = path_to_slash(&raw_pattern);
+
+    wildcard_match(&pattern_abs, &spec_abs) || wildcard_match(&pattern_rel, &spec_rel)
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+fn path_to_slash(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace(std::path::MAIN_SEPARATOR, "/")
+}
+
+fn wildcard_match(pattern: &str, text: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+
+    let anchored_start = !pattern.starts_with('*');
+    let anchored_end = !pattern.ends_with('*');
+    let mut parts = pattern.split('*').filter(|part| !part.is_empty());
+    let Some(first) = parts.next() else {
+        return true;
+    };
+
+    let mut rest = text;
+    let mut last = first;
+    if anchored_start {
+        let Some(stripped) = rest.strip_prefix(first) else {
+            return false;
+        };
+        rest = stripped;
+    } else if let Some(index) = rest.find(first) {
+        rest = &rest[index + first.len()..];
+    } else {
+        return false;
+    }
+
+    for part in parts {
+        let Some(index) = rest.find(part) else {
+            return false;
+        };
+        rest = &rest[index + part.len()..];
+        last = part;
+    }
+
+    !anchored_end || text.ends_with(last)
 }
 
 /// Collect all testable clause IDs for manifest cleanup.
@@ -518,4 +652,137 @@ pub fn count_pending_in_sections(sections: &[ought_spec::Section]) -> usize {
                 + count_pending_in_sections(&s.subsections)
         })
         .sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use ought_spec::{
+        Clause, ClauseId, Keyword, Metadata, Section, SourceLocation, Spec, SpecGraph,
+    };
+
+    fn spec(root: &Path, rel_path: &str, name: &str, clause_id: &str) -> Spec {
+        let source_path = root.join(rel_path);
+        Spec {
+            name: name.to_string(),
+            metadata: Metadata::default(),
+            sections: vec![Section {
+                title: "Behavior".to_string(),
+                depth: 2,
+                prose: String::new(),
+                clauses: vec![Clause {
+                    id: ClauseId(clause_id.to_string()),
+                    keyword: Keyword::Must,
+                    severity: Keyword::Must.severity(),
+                    text: "do the thing".to_string(),
+                    condition: None,
+                    otherwise: Vec::new(),
+                    temporal: None,
+                    hints: Vec::new(),
+                    source_location: SourceLocation {
+                        file: source_path.clone(),
+                        line: 3,
+                    },
+                    content_hash: clause_id.to_string(),
+                    pending: false,
+                }],
+                subsections: Vec::new(),
+            }],
+            source_path,
+        }
+    }
+
+    fn group_clause_ids(groups: &[SectionGroup<'_>]) -> Vec<String> {
+        groups
+            .iter()
+            .flat_map(|group| group.testable_clauses.iter())
+            .map(|clause| clause.id.0.clone())
+            .collect()
+    }
+
+    #[test]
+    fn filter_section_groups_by_relative_spec_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_path = tmp.path().join("ought.toml");
+        let graph = SpecGraph::from_specs(vec![
+            spec(
+                tmp.path(),
+                "ought/engine/generator.ought.md",
+                "Generator",
+                "generator::must_generate",
+            ),
+            spec(
+                tmp.path(),
+                "ought/engine/parser.ought.md",
+                "Parser",
+                "parser::must_parse",
+            ),
+        ])
+        .unwrap();
+
+        let groups = collect_section_groups(&graph);
+        let filtered =
+            filter_section_groups_by_path(groups, &config_path, "ought/engine/generator.ought.md")
+                .unwrap();
+
+        assert_eq!(
+            group_clause_ids(&filtered),
+            vec!["generator::must_generate"]
+        );
+    }
+
+    #[test]
+    fn filter_section_groups_by_glob_pattern() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_path = tmp.path().join("ought.toml");
+        let graph = SpecGraph::from_specs(vec![
+            spec(
+                tmp.path(),
+                "ought/engine/generator.ought.md",
+                "Generator",
+                "generator::must_generate",
+            ),
+            spec(
+                tmp.path(),
+                "ought/engine/parser.ought.md",
+                "Parser",
+                "parser::must_parse",
+            ),
+            spec(tmp.path(), "ought/cli/cli.ought.md", "CLI", "cli::must_run"),
+        ])
+        .unwrap();
+
+        let groups = collect_section_groups(&graph);
+        let filtered =
+            filter_section_groups_by_path(groups, &config_path, "ought/engine/*.ought.md").unwrap();
+
+        assert_eq!(
+            group_clause_ids(&filtered),
+            vec!["generator::must_generate", "parser::must_parse"]
+        );
+    }
+
+    #[test]
+    fn filter_section_groups_errors_when_no_specs_match() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_path = tmp.path().join("ought.toml");
+        let graph = SpecGraph::from_specs(vec![spec(
+            tmp.path(),
+            "ought/engine/generator.ought.md",
+            "Generator",
+            "generator::must_generate",
+        )])
+        .unwrap();
+
+        let groups = collect_section_groups(&graph);
+        let result = filter_section_groups_by_path(groups, &config_path, "ought/missing.ought.md");
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+
+        assert!(
+            err.to_string().contains("no spec files matched"),
+            "unexpected error: {err}"
+        );
+    }
 }

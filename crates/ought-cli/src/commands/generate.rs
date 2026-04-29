@@ -2,11 +2,11 @@ use std::process;
 use std::sync::{Arc, Mutex};
 
 use ought_gen::manifest::Manifest;
-use ought_gen::{AgentRunStatus, AgentReport};
+use ought_gen::{AgentReport, AgentRunStatus};
 
 use super::{
-    build_agent_assignments, collect_all_testable_ids, collect_section_groups, load_config,
-    load_specs, primary_test_dir,
+    build_agent_assignments, collect_all_testable_ids, collect_section_groups,
+    filter_section_groups_by_path, load_config, load_specs, primary_test_dir,
 };
 use crate::{Cli, GenerateArgs};
 
@@ -22,6 +22,11 @@ pub fn run(cli: &Cli, args: &GenerateArgs) -> anyhow::Result<()> {
     let mut manifest = Manifest::load(&manifest_path).unwrap_or_default();
 
     let groups = collect_section_groups(&specs);
+    let groups = if let Some(path) = &args.path {
+        filter_section_groups_by_path(groups, &config_path, path)?
+    } else {
+        groups
+    };
 
     let mut generated_count = 0usize;
     let mut error_count = 0usize;
@@ -75,7 +80,8 @@ pub fn run(cli: &Cli, args: &GenerateArgs) -> anyhow::Result<()> {
                 cli.verbose,
             );
 
-            let reports = tokio::runtime::Runtime::new()?.block_on(orchestrator.run(assignments))?;
+            let reports =
+                tokio::runtime::Runtime::new()?.block_on(orchestrator.run(assignments))?;
 
             for report in &reports {
                 render_report(report, cli.verbose);
@@ -91,11 +97,16 @@ pub fn run(cli: &Cli, args: &GenerateArgs) -> anyhow::Result<()> {
         }
     }
 
-    let all_ids = collect_all_testable_ids(&specs);
-    let id_refs: Vec<&ought_spec::ClauseId> = all_ids.iter().collect();
-    manifest.remove_orphans(&id_refs);
-
-    manifest.save(&manifest_path)?;
+    if args.check {
+        if !manifest_path.exists() {
+            manifest.save(&manifest_path)?;
+        }
+    } else {
+        let all_ids = collect_all_testable_ids(&specs);
+        let id_refs: Vec<&ought_spec::ClauseId> = all_ids.iter().collect();
+        manifest.remove_orphans(&id_refs);
+        manifest.save(&manifest_path)?;
+    }
 
     eprintln!("\n{} generated, {} errors", generated_count, error_count);
 

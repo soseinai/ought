@@ -38,7 +38,7 @@ ought = { path = "crates/ought-cli", version = "0.2.0" }
 # Path-only until open-harness is published; pin cuts across ought's workspace.
 oharness-core = { path = "../open-harness/crates/oharness-core" }
 oharness-llm = { path = "../open-harness/crates/oharness-llm" }
-oharness-providers = { path = "../open-harness/crates/oharness-providers", default-features = false, features = ["anthropic", "openai", "openrouter", "ollama"] }
+oharness-providers = { path = "../open-harness/crates/oharness-providers", default-features = false, features = ["anthropic", "openai", "openai-codex", "openrouter", "ollama"] }
 oharness-tools = { path = "../open-harness/crates/oharness-tools", default-features = false }
 oharness-loop = { path = "../open-harness/crates/oharness-loop", default-features = false, features = ["react"] }
 
